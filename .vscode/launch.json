@@ -1,0 +1,12 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "PbrtDX.exe",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/build/src/Debug/PbrtDX.exe",
+            "cwd": "${workspaceFolder}/build/src/Debug"
+        }
+    ]
+}
