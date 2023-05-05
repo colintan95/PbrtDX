@@ -1,3 +1,5 @@
+#include "App.h"
+
 #include <windows.h>
 
 static LRESULT WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
@@ -27,6 +29,8 @@ int WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdShow)
                              CW_USEDEFAULT, CW_USEDEFAULT, 1024, 768, nullptr, nullptr, hinstance,
                              nullptr);
     ShowWindow(hwnd, cmdShow);
+
+    App app(hwnd);
 
     MSG msg{};
 
