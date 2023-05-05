@@ -1,6 +1,10 @@
 #include "App.h"
 
+#include "gen/Shader.h"
+
 #include <d3dx12.h>
+
+#include <vector>
 
 using winrt::com_ptr;
 using winrt::check_bool;
@@ -15,6 +19,8 @@ App::App(HWND hwnd) : m_hwnd(hwnd)
     CreateSwapChain();
 
     CreateCmdList();
+
+    CreatePipeline();
 }
 
 void App::CreateDevice()
@@ -42,6 +48,8 @@ void App::CreateDevice()
     }
 
     check_hresult(D3D12CreateDevice(adapter.get(), featureLevel, IID_PPV_ARGS(m_device.put())));
+
+    m_device.as(m_dxrDevice);
 }
 
 void App::CreateCmdQueue()
@@ -102,4 +110,56 @@ void App::CreateCmdList()
     ++m_fenceValue;
 
     m_fenceEvent = CreateEvent(nullptr, false, false, nullptr);
+}
+
+void App::CreatePipeline()
+{
+    D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc{};
+    rootSigDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+    rootSigDesc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+
+    com_ptr<ID3DBlob> signatureBlob;
+    com_ptr<ID3DBlob> errorBlob;
+    check_hresult(D3D12SerializeVersionedRootSignature(&rootSigDesc, signatureBlob.put(),
+                                                       errorBlob.put()));
+    check_hresult(m_device->CreateRootSignature(0, signatureBlob->GetBufferPointer(),
+                                                signatureBlob->GetBufferSize(),
+                                                IID_PPV_ARGS(m_globalRootSig.put())));
+
+    std::vector<D3D12_STATE_SUBOBJECT> subObjs;
+
+    D3D12_GLOBAL_ROOT_SIGNATURE globalRootSigSubObj{};
+    globalRootSigSubObj.pGlobalRootSignature = m_globalRootSig.get();
+
+    subObjs.push_back({D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE, &globalRootSigSubObj});
+
+    std::vector<D3D12_EXPORT_DESC> dxilLibExports;
+    dxilLibExports.push_back({L"RayGenShader", nullptr, D3D12_EXPORT_FLAG_NONE});
+
+    D3D12_DXIL_LIBRARY_DESC dxilLibSubObj{};
+    dxilLibSubObj.DXILLibrary.pShaderBytecode = g_shader;
+    dxilLibSubObj.DXILLibrary.BytecodeLength = ARRAYSIZE(g_shader);
+    dxilLibSubObj.NumExports = static_cast<UINT>(dxilLibExports.size());
+    dxilLibSubObj.pExports = dxilLibExports.data();
+
+    subObjs.push_back({D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY, &dxilLibSubObj});
+
+    D3D12_RAYTRACING_SHADER_CONFIG shaderConfig{};
+    shaderConfig.MaxPayloadSizeInBytes = 0;
+    shaderConfig.MaxAttributeSizeInBytes = 0;
+
+    subObjs.push_back({D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG, &shaderConfig});
+
+    D3D12_RAYTRACING_PIPELINE_CONFIG pipelineConfig{};
+    pipelineConfig.MaxTraceRecursionDepth = 1;
+
+    subObjs.push_back({D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG , &pipelineConfig});
+
+    D3D12_STATE_OBJECT_DESC pipelineStateDesc{};
+    pipelineStateDesc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+    pipelineStateDesc.NumSubobjects = static_cast<UINT>(subObjs.size());
+    pipelineStateDesc.pSubobjects = subObjs.data();
+
+    check_hresult(m_dxrDevice->CreateStateObject(&pipelineStateDesc,
+                                                 IID_PPV_ARGS(&m_pipelineState)));
 }

@@ -18,13 +18,17 @@ private:
 
     void CreateCmdList();
 
+    void CreatePipeline();
+
     HWND m_hwnd;
 
     UINT m_windowWidth = 0;
     UINT m_windowHeight = 0;
 
     winrt::com_ptr<IDXGIFactory6> m_factory;
+
     winrt::com_ptr<ID3D12Device> m_device;
+    winrt::com_ptr<ID3D12Device5> m_dxrDevice;
 
     winrt::com_ptr<ID3D12CommandQueue> m_cmdQueue;
 
@@ -49,4 +53,8 @@ private:
     };
 
     Frame m_frames[NUM_FRAMES];
+
+    winrt::com_ptr<ID3D12RootSignature> m_globalRootSig;
+
+    winrt::com_ptr<ID3D12StateObject> m_pipelineState;
 };
