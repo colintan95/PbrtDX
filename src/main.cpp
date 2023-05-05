@@ -41,6 +41,10 @@ int WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdShow)
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
+
+        app.Render();
+
+        Sleep(16);
     }
 
     return 0;

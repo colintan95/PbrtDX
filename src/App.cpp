@@ -21,6 +21,14 @@ App::App(HWND hwnd) : m_hwnd(hwnd)
     CreateCmdList();
 
     CreatePipeline();
+
+    CreateAccelerationStructures();
+
+    CreateRaytracingBuffers();
+
+    CreateDescriptorHeap();
+
+    CreateShaderTables();
 }
 
 void App::CreateDevice()
@@ -94,6 +102,9 @@ void App::CreateSwapChain()
 
 void App::CreateCmdList()
 {
+    check_hresult(m_device->CreateCommandAllocator(D3D12_COMMAND_LIST_TYPE_DIRECT,
+                                                   IID_PPV_ARGS(m_cmdAllocator.put())));
+
     for (int i = 0; i < _countof(m_frames); ++i)
     {
         check_hresult(m_device->CreateCommandAllocator(
@@ -101,7 +112,7 @@ void App::CreateCmdList()
     }
 
     check_hresult(m_device->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT,
-                                              m_frames[0].CmdAllocator.get(), nullptr,
+                                              m_cmdAllocator.get(), nullptr,
                                               IID_PPV_ARGS(m_cmdList.put())));
     m_cmdList->Close();
 
@@ -114,9 +125,26 @@ void App::CreateCmdList()
 
 void App::CreatePipeline()
 {
+    D3D12_DESCRIPTOR_RANGE1 range{};
+    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    range.NumDescriptors = 1;
+    range.BaseShaderRegister = 0;
+    range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER1 rootParams[2] = {};
+
+    rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParams[0].Descriptor.ShaderRegister = 0;
+
+    rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[1].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[1].DescriptorTable.pDescriptorRanges = &range;
+
     D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc{};
     rootSigDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
     rootSigDesc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
+    rootSigDesc.Desc_1_1.NumParameters = _countof(rootParams);
+    rootSigDesc.Desc_1_1.pParameters = rootParams;
 
     com_ptr<ID3DBlob> signatureBlob;
     com_ptr<ID3DBlob> errorBlob;
@@ -135,6 +163,7 @@ void App::CreatePipeline()
 
     std::vector<D3D12_EXPORT_DESC> dxilLibExports;
     dxilLibExports.push_back({L"RayGenShader", nullptr, D3D12_EXPORT_FLAG_NONE});
+    dxilLibExports.push_back({L"MissShader", nullptr, D3D12_EXPORT_FLAG_NONE});
 
     D3D12_DXIL_LIBRARY_DESC dxilLibSubObj{};
     dxilLibSubObj.DXILLibrary.pShaderBytecode = g_shader;
@@ -145,7 +174,7 @@ void App::CreatePipeline()
     subObjs.push_back({D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY, &dxilLibSubObj});
 
     D3D12_RAYTRACING_SHADER_CONFIG shaderConfig{};
-    shaderConfig.MaxPayloadSizeInBytes = 0;
+    shaderConfig.MaxPayloadSizeInBytes = sizeof(float) * 4;
     shaderConfig.MaxAttributeSizeInBytes = 0;
 
     subObjs.push_back({D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG, &shaderConfig});
@@ -162,4 +191,280 @@ void App::CreatePipeline()
 
     check_hresult(m_dxrDevice->CreateStateObject(&pipelineStateDesc,
                                                  IID_PPV_ARGS(&m_pipelineState)));
+}
+
+void App::CreateAccelerationStructures()
+{
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlasInputs{};
+    tlasInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
+    tlasInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+    tlasInputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+    tlasInputs.NumDescs = 0;
+
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO tlasPrebuildInfo{};
+    m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&tlasInputs, &tlasPrebuildInfo);
+
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS blasInputs{};
+    blasInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
+    blasInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
+    blasInputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
+    blasInputs.NumDescs = 0;
+
+    D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO blasPrebuildInfo{};
+    m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&blasInputs, &blasPrebuildInfo);
+
+    com_ptr<ID3D12Resource> scratchResource;
+
+    {
+        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
+        CD3DX12_RESOURCE_DESC resourceDesc =
+            CD3DX12_RESOURCE_DESC::Buffer(std::max(blasPrebuildInfo.ResultDataMaxSizeInBytes,
+                                                   tlasPrebuildInfo.ResultDataMaxSizeInBytes),
+                                          D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+        check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                                                        &resourceDesc, D3D12_RESOURCE_STATE_COMMON,
+                                                        nullptr,
+                                                        IID_PPV_ARGS(scratchResource.put())));
+    }
+
+    {
+        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
+        CD3DX12_RESOURCE_DESC resourceDesc =
+            CD3DX12_RESOURCE_DESC::Buffer(blasPrebuildInfo.ResultDataMaxSizeInBytes,
+                                          D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+        check_hresult(m_device->CreateCommittedResource(
+            &heapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc,
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nullptr,
+            IID_PPV_ARGS(m_blas.put())));
+    }
+
+    {
+        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
+        CD3DX12_RESOURCE_DESC resourceDesc =
+            CD3DX12_RESOURCE_DESC::Buffer(tlasPrebuildInfo.ResultDataMaxSizeInBytes,
+                                          D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+        check_hresult(m_device->CreateCommittedResource(
+            &heapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc,
+            D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE, nullptr,
+            IID_PPV_ARGS(m_tlas.put())));
+    }
+
+    check_hresult(m_cmdAllocator->Reset());
+    check_hresult(m_cmdList->Reset(m_cmdAllocator.get(), nullptr));
+
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC blasDesc{};
+    blasDesc.Inputs = blasInputs;
+    blasDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
+    blasDesc.DestAccelerationStructureData = m_blas->GetGPUVirtualAddress();
+
+    m_cmdList->BuildRaytracingAccelerationStructure(&blasDesc, 0, nullptr);
+
+    D3D12_RESOURCE_BARRIER barrier{};
+    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+    barrier.UAV.pResource = m_blas.get();
+
+    m_cmdList->ResourceBarrier(1, &barrier);
+
+    D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_DESC tlasDesc{};
+    tlasDesc.Inputs = tlasInputs;
+    tlasDesc.ScratchAccelerationStructureData = scratchResource->GetGPUVirtualAddress();
+    tlasDesc.DestAccelerationStructureData = m_tlas->GetGPUVirtualAddress();
+
+    m_cmdList->BuildRaytracingAccelerationStructure(&tlasDesc, 0, nullptr);
+
+    m_cmdList->Close();
+
+    ID3D12CommandList* cmdLists[] = {m_cmdList.get()};
+    m_cmdQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
+
+    WaitForGpu();
+}
+
+void App::CreateRaytracingBuffers()
+{
+    CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
+    CD3DX12_RESOURCE_DESC resourceDesc =
+        CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_R8G8B8A8_UNORM, m_windowWidth, m_windowHeight, 1,
+                                     1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+
+    check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                                                    &resourceDesc,
+                                                    D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                                                    IID_PPV_ARGS(m_film.put())));
+}
+
+void App::CreateDescriptorHeap()
+{
+    D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+    heapDesc.NumDescriptors = 1;
+    heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+    heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+    check_hresult(m_device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(m_descriptorHeap.put())));
+
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
+    uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+
+    m_device->CreateUnorderedAccessView(m_film.get(), nullptr, &uavDesc,
+                                        m_descriptorHeap->GetCPUDescriptorHandleForHeapStart());
+    m_filmUav = m_descriptorHeap->GetGPUDescriptorHandleForHeapStart();
+}
+
+static size_t Align(size_t size, size_t alignment) {
+    return (size + (alignment - 1)) & ~(alignment - 1);
+}
+
+void App::CreateShaderTables()
+{
+    com_ptr<ID3D12StateObjectProperties> stateObjProps;
+    m_pipelineState.as(stateObjProps);
+
+    constexpr uint32_t shaderIdSize = D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES;
+
+    {
+        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
+        CD3DX12_RESOURCE_DESC resourceDesc =
+            CD3DX12_RESOURCE_DESC::Buffer(Align(shaderIdSize,
+                                                D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT));
+
+        check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                                                        &resourceDesc,
+                                                        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                        IID_PPV_ARGS(m_rayGenShaderTable.put())));
+
+        void* rayGenShaderId = stateObjProps->GetShaderIdentifier(L"RayGenShader");
+
+        uint8_t* ptr = nullptr;
+        check_hresult(m_rayGenShaderTable->Map(0, nullptr, reinterpret_cast<void**>(&ptr)));
+
+        memcpy(ptr, rayGenShaderId, shaderIdSize);
+
+        m_rayGenShaderTable->Unmap(0, nullptr);
+    }
+
+    {
+        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
+        CD3DX12_RESOURCE_DESC resourceDesc =
+            CD3DX12_RESOURCE_DESC::Buffer(Align(shaderIdSize,
+                                                D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT));
+
+        check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                                                        &resourceDesc,
+                                                        D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                        IID_PPV_ARGS(m_missShaderTable.put())));
+
+        void* missShaderId = stateObjProps->GetShaderIdentifier(L"MissShader");
+
+        uint8_t* ptr = nullptr;
+        check_hresult(m_missShaderTable->Map(0, nullptr, reinterpret_cast<void**>(&ptr)));
+
+        memcpy(ptr, missShaderId, shaderIdSize);
+
+        m_missShaderTable->Unmap(0, nullptr);
+    }
+}
+
+void App::Render()
+{
+    check_hresult(m_cmdAllocator->Reset());
+    check_hresult(m_cmdList->Reset(m_cmdAllocator.get(), nullptr));
+
+    m_cmdList->SetComputeRootSignature(m_globalRootSig.get());
+
+    ID3D12DescriptorHeap* descriptorHeaps[] = {m_descriptorHeap.get()};
+    m_cmdList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+
+    m_cmdList->SetComputeRootShaderResourceView(0, m_tlas->GetGPUVirtualAddress());
+    m_cmdList->SetComputeRootDescriptorTable(1, m_filmUav);
+
+    D3D12_DISPATCH_RAYS_DESC dispatchDesc{};
+
+    dispatchDesc.RayGenerationShaderRecord.StartAddress =
+        m_rayGenShaderTable->GetGPUVirtualAddress();
+    dispatchDesc.RayGenerationShaderRecord.SizeInBytes = m_rayGenShaderTable->GetDesc().Width;
+
+    dispatchDesc.MissShaderTable.StartAddress = m_missShaderTable->GetGPUVirtualAddress();
+    dispatchDesc.MissShaderTable.SizeInBytes = m_missShaderTable->GetDesc().Width;
+
+    dispatchDesc.Width = m_windowWidth;
+    dispatchDesc.Height = m_windowHeight;
+    dispatchDesc.Depth = 1;
+
+    m_cmdList->SetPipelineState1(m_pipelineState.get());
+    m_cmdList->DispatchRays(&dispatchDesc);
+
+    {
+        D3D12_RESOURCE_BARRIER barriers[2] = {};
+
+        barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barriers[0].Transition.pResource = m_frames[m_currentFrame].SwapChainBuffer.get();
+        barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_PRESENT;
+        barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_DEST;
+
+        barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barriers[1].Transition.pResource = m_film.get();
+        barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+        barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+
+        m_cmdList->ResourceBarrier(_countof(barriers), barriers);
+    }
+
+    m_cmdList->CopyResource(m_frames[m_currentFrame].SwapChainBuffer.get(), m_film.get());
+
+    {
+        D3D12_RESOURCE_BARRIER barriers[2] = {};
+
+        barriers[0].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barriers[0].Transition.pResource = m_frames[m_currentFrame].SwapChainBuffer.get();
+        barriers[0].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barriers[0].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_DEST;
+        barriers[0].Transition.StateAfter = D3D12_RESOURCE_STATE_PRESENT;
+
+        barriers[1].Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
+        barriers[1].Transition.pResource = m_film.get();
+        barriers[1].Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        barriers[1].Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+        barriers[1].Transition.StateAfter = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+
+        m_cmdList->ResourceBarrier(_countof(barriers), barriers);
+    }
+
+    check_hresult(m_cmdList->Close());
+
+    ID3D12CommandList* cmdLists[] = {m_cmdList.get()};
+    m_cmdQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
+
+    check_hresult(m_swapChain->Present(1, 0));
+
+    check_hresult(m_cmdQueue->Signal(m_fence.get(), m_fenceValue));
+
+    m_frames[m_currentFrame].FenceWaitValue = m_fenceValue;
+    ++m_fenceValue;
+
+    m_currentFrame = m_swapChain->GetCurrentBackBufferIndex();
+
+    if (m_fence->GetCompletedValue() < m_frames[m_currentFrame].FenceWaitValue)
+    {
+        check_hresult(m_fence->SetEventOnCompletion(m_frames[m_currentFrame].FenceWaitValue,
+                                                    m_fenceEvent));
+
+        WaitForSingleObjectEx(m_fenceEvent, INFINITE, false);
+    }
+}
+
+void App::WaitForGpu()
+{
+    uint64_t waitValue = m_fenceValue;
+    ++m_fenceValue;
+
+    m_cmdQueue->Signal(m_fence.get(), waitValue);
+
+    check_hresult(m_fence->SetEventOnCompletion(waitValue, m_fenceEvent));
+
+    WaitForSingleObjectEx(m_fenceEvent, INFINITE, false);
 }
