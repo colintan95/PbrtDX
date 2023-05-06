@@ -5,8 +5,17 @@ struct RayPayload {
 typedef BuiltInTriangleIntersectionAttributes IntersectAttributes;
 
 // Global descriptors.
+
 RaytracingAccelerationStructure g_scene: register(t0);
+
 RWTexture2D<float4> g_film : register(u0);
+
+ByteAddressBuffer g_indexBuffer : register(t1);
+StructuredBuffer<float2> g_uvBuffer : register(t2);
+
+Texture2D g_texture : register(t3);
+
+SamplerState  g_sampler : register(s0);
 
 [shader("raygeneration")]
 void RayGenShader()
@@ -38,7 +47,17 @@ void RayGenShader()
 [shader("closesthit")]
 void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)
 {
-    payload.Color = float4(1.f, 0.f, 0.f, 1.f);
+    // PrimitiveIndex() gives the index of the triangle in the mesh. Each triangle has 3 indices
+    // and each index takes up 4 bytes, so each triangle takes up 12 bytes.
+    uint indexByteOffset = PrimitiveIndex() * 12;
+
+    float2 uv0 = g_uvBuffer[g_indexBuffer.Load(indexByteOffset)];
+    float2 uv1 = g_uvBuffer[g_indexBuffer.Load(indexByteOffset + 4)];
+    float2 uv2 = g_uvBuffer[g_indexBuffer.Load(indexByteOffset + 8)];
+
+    float2 uv = uv0 + attr.barycentrics.x * (uv1 - uv0) + attr.barycentrics.y * (uv2 - uv0);
+
+    payload.Color = float4(g_texture.SampleLevel(g_sampler, uv, 0).rgb, 1.f);
 }
 
 [shader("miss")]

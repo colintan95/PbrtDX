@@ -14,13 +14,15 @@ static int PlyVertexCallback(p_ply_argument argument)
     float* buffer = nullptr;
 
     long index = 0;
-    long offset = 0;
+    long flags = 0;
 
-    ply_get_argument_user_data(argument, reinterpret_cast<void**>(&buffer), &offset);
+    ply_get_argument_user_data(argument, reinterpret_cast<void**>(&buffer), &flags);
 
     ply_get_argument_element(argument, nullptr, &index);
 
-    static constexpr int stride = 3;
+    // E.g. if flags = 0x31, then stride = 3 and offset = 1.
+    int stride = (flags & 0x0F0) >> 4;
+    int offset = flags & 0x00F;
 
     buffer[index * stride + offset] = static_cast<float>(ply_get_argument_value(argument));
 
@@ -110,9 +112,17 @@ void LoadMeshFromPlyFile(std::filesystem::path path, Mesh* mesh)
 
     mesh->Positions.resize(vertexCount);
 
-    if (ply_set_read_cb(ply, "vertex", "x", PlyVertexCallback, mesh->Positions.data(), 0) == 0 ||
-        ply_set_read_cb(ply, "vertex", "y", PlyVertexCallback, mesh->Positions.data(), 1) == 0 ||
-        ply_set_read_cb(ply, "vertex", "z", PlyVertexCallback, mesh->Positions.data(), 2) == 0)
+    if (ply_set_read_cb(ply, "vertex", "x", PlyVertexCallback, mesh->Positions.data(), 0x30) == 0 ||
+        ply_set_read_cb(ply, "vertex", "y", PlyVertexCallback, mesh->Positions.data(), 0x31) == 0 ||
+        ply_set_read_cb(ply, "vertex", "z", PlyVertexCallback, mesh->Positions.data(), 0x32) == 0)
+    {
+        throw std::runtime_error("Could not find vertex data.");
+    }
+
+    mesh->UVs.resize(vertexCount);
+
+    if (ply_set_read_cb(ply, "vertex", "u", PlyVertexCallback, mesh->UVs.data(), 0x20) == 0 ||
+        ply_set_read_cb(ply, "vertex", "v", PlyVertexCallback, mesh->UVs.data(), 0x21) == 0)
     {
         throw std::runtime_error("Could not find vertex data.");
     }

@@ -1,6 +1,7 @@
 #include "App.h"
 
 #include "gen/Shader.h"
+#include "ImageLoader.h"
 #include "Mesh.h"
 
 #include <d3dx12.h>
@@ -24,13 +25,13 @@ App::App(HWND hwnd) : m_hwnd(hwnd)
 
     CreatePipeline();
 
-    LoadMeshes();
+    LoadMeshData();
 
     CreateAccelerationStructures();
 
     CreateRaytracingBuffers();
 
-    CreateDescriptorHeap();
+    CreateDescriptors();
 
     CreateShaderTables();
 }
@@ -125,20 +126,45 @@ void App::CreateCmdList()
 
 void App::CreatePipeline()
 {
-    D3D12_DESCRIPTOR_RANGE1 range{};
-    range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    range.NumDescriptors = 1;
-    range.BaseShaderRegister = 0;
-    range.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    D3D12_DESCRIPTOR_RANGE1 ranges[3] = {};
 
-    D3D12_ROOT_PARAMETER1 rootParams[2] = {};
+    ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    ranges[0].NumDescriptors = 1;
+    ranges[0].BaseShaderRegister = 0;
+    ranges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    ranges[1].NumDescriptors = 1;
+    ranges[1].BaseShaderRegister = 3;
+    ranges[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    ranges[2].NumDescriptors = 1;
+    ranges[2].BaseShaderRegister = 0;
+    ranges[2].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+
+    D3D12_ROOT_PARAMETER1 rootParams[6] = {};
 
     rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
     rootParams[0].Descriptor.ShaderRegister = 0;
 
     rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     rootParams[1].DescriptorTable.NumDescriptorRanges = 1;
-    rootParams[1].DescriptorTable.pDescriptorRanges = &range;
+    rootParams[1].DescriptorTable.pDescriptorRanges = &ranges[0];
+
+    rootParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParams[2].Descriptor.ShaderRegister = 1;
+
+    rootParams[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParams[3].Descriptor.ShaderRegister = 2;
+
+    rootParams[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[4].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[4].DescriptorTable.pDescriptorRanges = &ranges[1];
+
+    rootParams[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[5].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[5].DescriptorTable.pDescriptorRanges = &ranges[2];
 
     D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc{};
     rootSigDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
@@ -201,7 +227,7 @@ void App::CreatePipeline()
                                                  IID_PPV_ARGS(&m_pipelineState)));
 }
 
-void App::LoadMeshes()
+void App::LoadMeshData()
 {
     Mesh mesh{};
 
@@ -211,7 +237,7 @@ void App::LoadMeshes()
     m_indexCount = mesh.Indices.size();
 
     {
-        size_t dataSize = mesh.Positions.size() * sizeof(Point3);
+        size_t dataSize = mesh.Positions.size() * sizeof(glm::vec3);
 
         CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
         CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(dataSize);
@@ -221,6 +247,20 @@ void App::LoadMeshes()
                                                         nullptr, IID_PPV_ARGS(m_posBuffer.put())));
 
         UploadToBuffer(m_posBuffer.get(), reinterpret_cast<const uint8_t*>(mesh.Positions.data()),
+                       dataSize);
+    }
+
+    {
+        size_t dataSize = mesh.UVs.size() * sizeof(glm::vec2);
+
+        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
+        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(dataSize);
+
+        check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                                                        &resourceDesc, D3D12_RESOURCE_STATE_COMMON,
+                                                        nullptr, IID_PPV_ARGS(m_uvBuffer.put())));
+
+        UploadToBuffer(m_uvBuffer.get(), reinterpret_cast<const uint8_t*>(mesh.UVs.data()),
                        dataSize);
     }
 
@@ -262,6 +302,10 @@ void App::LoadMeshes()
         UploadToBuffer(m_transformBuffer.get(), reinterpret_cast<const uint8_t*>(&transform),
                        dataSize);
     }
+
+    ImageLoader loader(m_device.get());
+
+    m_texture = loader.LoadImage("scenes/pbrt-book/texture/book_pbrt.png");
 }
 
 void App::CreateAccelerationStructures()
@@ -408,21 +452,69 @@ void App::CreateRaytracingBuffers()
                                                     IID_PPV_ARGS(m_film.put())));
 }
 
-void App::CreateDescriptorHeap()
+void App::CreateDescriptors()
 {
-    D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-    heapDesc.NumDescriptors = 1;
-    heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-    heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+        heapDesc.NumDescriptors = 2;
+        heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+        heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
-    check_hresult(m_device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(m_descriptorHeap.put())));
+        check_hresult(m_device->CreateDescriptorHeap(&heapDesc,
+                                                     IID_PPV_ARGS(m_descriptorHeap.put())));
+    }
+
+    D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_descriptorHeap->GetCPUDescriptorHandleForHeapStart();
+    D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = m_descriptorHeap->GetGPUDescriptorHandleForHeapStart();
+
+    uint32_t descriptorSize = m_device->GetDescriptorHandleIncrementSize(
+        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
     D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
     uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 
-    m_device->CreateUnorderedAccessView(m_film.get(), nullptr, &uavDesc,
-                                        m_descriptorHeap->GetCPUDescriptorHandleForHeapStart());
-    m_filmUav = m_descriptorHeap->GetGPUDescriptorHandleForHeapStart();
+    m_device->CreateUnorderedAccessView(m_film.get(), nullptr, &uavDesc, cpuHandle);
+    m_filmUav = gpuHandle;
+
+    cpuHandle.ptr += descriptorSize;
+    gpuHandle.ptr += descriptorSize;
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.Texture2D.MostDetailedMip = 0;
+    srvDesc.Texture2D.MipLevels = 1;
+
+    m_device->CreateShaderResourceView(m_texture.get(), &srvDesc, cpuHandle);
+    m_textureSrv = gpuHandle;
+
+    {
+        D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
+        heapDesc.NumDescriptors = 1;
+        heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
+        heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+
+        check_hresult(m_device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(m_samplerHeap.put())));
+    }
+
+    D3D12_SAMPLER_DESC samplerDesc{};
+    samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+    samplerDesc.MinLOD = 0.f;
+    samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+    samplerDesc.MipLODBias = 0.0f;
+    samplerDesc.MaxAnisotropy = 1;
+    samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    samplerDesc.BorderColor[0] = 0;
+    samplerDesc.BorderColor[1] = 0;
+    samplerDesc.BorderColor[2] = 0;
+    samplerDesc.BorderColor[3] = 0;
+
+    m_device->CreateSampler(&samplerDesc, m_samplerHeap->GetCPUDescriptorHandleForHeapStart());
+    m_sampler = m_samplerHeap->GetGPUDescriptorHandleForHeapStart();
 }
 
 static size_t Align(size_t size, size_t alignment) {
@@ -506,11 +598,19 @@ void App::Render()
 
     m_cmdList->SetComputeRootSignature(m_globalRootSig.get());
 
-    ID3D12DescriptorHeap* descriptorHeaps[] = {m_descriptorHeap.get()};
+    ID3D12DescriptorHeap* descriptorHeaps[] = {m_descriptorHeap.get(), m_samplerHeap.get()};
     m_cmdList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
     m_cmdList->SetComputeRootShaderResourceView(0, m_tlas->GetGPUVirtualAddress());
+
     m_cmdList->SetComputeRootDescriptorTable(1, m_filmUav);
+
+    m_cmdList->SetComputeRootShaderResourceView(2, m_indexBuffer->GetGPUVirtualAddress());
+    m_cmdList->SetComputeRootShaderResourceView(3, m_uvBuffer->GetGPUVirtualAddress());
+
+    m_cmdList->SetComputeRootDescriptorTable(4, m_textureSrv);
+
+    m_cmdList->SetComputeRootDescriptorTable(5, m_sampler);
 
     D3D12_DISPATCH_RAYS_DESC dispatchDesc{};
 

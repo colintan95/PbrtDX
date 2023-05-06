@@ -1,18 +1,14 @@
 #pragma once
 
+#include <glm/glm.hpp>
+
 #include <filesystem>
 #include <vector>
 
-struct Point3
-{
-    float x = 0;
-    float y = 0;
-    float z = 0;
-};
-
 struct Mesh
 {
-    std::vector<Point3> Positions;
+    std::vector<glm::vec3> Positions;
+    std::vector<glm::vec2> UVs;
 
     std::vector<uint32_t> Indices;
 };

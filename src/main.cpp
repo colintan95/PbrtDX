@@ -19,6 +19,9 @@ static LRESULT WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 
 int WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdShow)
 {
+    // Needed by WIC, which is used in ImageLoader.
+    CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+
     WNDCLASSEX windowClass{};
     windowClass.cbSize = sizeof(WNDCLASSEX);
     windowClass.style = CS_HREDRAW | CS_VREDRAW;
