@@ -100,12 +100,12 @@ com_ptr<ID3D12Resource> ImageLoader::LoadImage(std::filesystem::path path)
 
     std::byte* bitmapPtr = reinterpret_cast<std::byte*>(bitmapBuffer);
 
+    // Flips the image in y - for pbrt, texture coordinate (0,0) is at the lower left corner.
     for (size_t i = 0; i < copySrcLayout.Footprint.Height; ++i)
     {
-        memcpy(uploadPtr, bitmapPtr, bitmapWidth * 4);
-
-        uploadPtr += copySrcLayout.Footprint.RowPitch;
-        bitmapPtr += bitmapWidth * 4;
+        memcpy(uploadPtr + i * copySrcLayout.Footprint.RowPitch,
+               bitmapPtr + (copySrcLayout.Footprint.Height - i - 1) * bitmapWidth * 4,
+               bitmapWidth * 4);
     }
 
     uploadBuffer->Unmap(0, nullptr);
