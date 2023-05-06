@@ -17,8 +17,8 @@ void RayGenShader()
     float filmPosY = lerp(1.f, -1.f, filmPosNormalized.y);
 
     RayDesc ray;
-    ray.Origin = float3(0.f, 0.f, -1.f);
-    ray.Direction = normalize(float3(filmPosX, filmPosY, 1.f));
+    ray.Origin = float3(0.f, 2.1088f, 13.574f);
+    ray.Direction = normalize(float3(filmPosX, filmPosY, -1.f));
     ray.TMin = 0.1f;
     ray.TMax = 1000.f;
 

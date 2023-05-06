@@ -1,6 +1,7 @@
 #include "App.h"
 
 #include "gen/Shader.h"
+#include "Mesh.h"
 
 #include <d3dx12.h>
 
@@ -22,7 +23,7 @@ App::App(HWND hwnd) : m_hwnd(hwnd)
 
     CreatePipeline();
 
-    CreateVertexBuffers();
+    LoadMeshes();
 
     CreateAccelerationStructures();
 
@@ -203,38 +204,41 @@ void App::CreatePipeline()
                                                  IID_PPV_ARGS(&m_pipelineState)));
 }
 
-void App::CreateVertexBuffers()
+void App::LoadMeshes()
 {
-    static constexpr float posData[] = {
-        -0.5f, -0.5f, 0.f,
-        0.f, 0.5f, 0.f,
-        0.5f, -0.5f, 0.f
-    };
+    Mesh mesh{};
 
-    static constexpr uint16_t indices[] = {0, 1, 2};
+    LoadMeshFromPlyFile("scenes/pbrt-book/geometry/mesh_00003.ply", &mesh);
+
+    m_vertexCount = mesh.Positions.size();
+    m_indexCount = mesh.Indices.size();
 
     {
+        size_t dataSize = mesh.Positions.size() * sizeof(Point3);
+
         CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
-        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(posData));
+        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(dataSize);
 
         check_hresult(m_device->CreateCommittedResource(
             &heapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc, D3D12_RESOURCE_STATE_COMMON, nullptr,
             IID_PPV_ARGS(m_posBuffer.put())));
 
-        UploadToBuffer(m_posBuffer.get(), reinterpret_cast<const uint8_t*>(posData),
-                       sizeof(posData));
+        UploadToBuffer(m_posBuffer.get(), reinterpret_cast<const uint8_t*>(mesh.Positions.data()),
+                       dataSize);
     }
 
     {
+        size_t dataSize = mesh.Indices.size() * sizeof(uint32_t);
+
         CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
-        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(indices));
+        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(dataSize);
 
         check_hresult(m_device->CreateCommittedResource(
             &heapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc, D3D12_RESOURCE_STATE_COMMON, nullptr,
             IID_PPV_ARGS(m_indexBuffer.put())));
 
-        UploadToBuffer(m_indexBuffer.get(), reinterpret_cast<const uint8_t*>(indices),
-                       sizeof(indices));
+        UploadToBuffer(m_indexBuffer.get(), reinterpret_cast<const uint8_t*>(mesh.Indices.data()),
+                       dataSize);
     }
 }
 
@@ -253,10 +257,10 @@ void App::CreateAccelerationStructures()
     geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
     geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
     geometryDesc.Triangles.Transform3x4 = 0;
-    geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R16_UINT;
+    geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
     geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-    geometryDesc.Triangles.IndexCount = 3;
-    geometryDesc.Triangles.VertexCount = 3;
+    geometryDesc.Triangles.IndexCount = static_cast<uint32_t>(m_indexCount);
+    geometryDesc.Triangles.VertexCount = static_cast<uint32_t>(m_vertexCount);
     geometryDesc.Triangles.IndexBuffer = m_indexBuffer->GetGPUVirtualAddress();
     geometryDesc.Triangles.VertexBuffer.StartAddress = m_posBuffer->GetGPUVirtualAddress();
     geometryDesc.Triangles.VertexBuffer.StrideInBytes = sizeof(float) * 3;

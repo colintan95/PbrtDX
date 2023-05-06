@@ -2,7 +2,9 @@ add_executable(PbrtDX WIN32
     App.cpp
     App.h
     gen/Shader.h
-    main.cpp)
+    main.cpp
+    Mesh.cpp
+    Mesh.h)
 
 set(COMMON_SHADER_FLAGS -Zi -Od -Qembed_debug)
 
@@ -15,9 +17,14 @@ compile_shader(
 # For including headers generated in the build directory.
 target_include_directories(PbrtDX PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
-target_compile_definitions(PbrtDX PRIVATE UNICODE NOMINMAX)
+add_custom_command(
+    TARGET PbrtDX POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E create_symlink ${PBRT_SCENES_DIR} $<TARGET_FILE_DIR:PbrtDX>/scenes)
 
+target_compile_definitions(PbrtDX PRIVATE UNICODE NOMINMAX)
 target_compile_options(PbrtDX PRIVATE /W4 /WX /await)
+
+target_link_libraries(PbrtDX PRIVATE RPly)
 
 target_include_directories(PbrtDX PRIVATE ${PROJECT_SOURCE_DIR}/external/d3dx12)
 

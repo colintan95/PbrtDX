@@ -22,7 +22,7 @@ private:
 
     void CreatePipeline();
 
-    void CreateVertexBuffers();
+    void LoadMeshes();
 
     void CreateAccelerationStructures();
 
@@ -79,6 +79,9 @@ private:
     winrt::com_ptr<ID3D12RootSignature> m_globalRootSig;
 
     winrt::com_ptr<ID3D12StateObject> m_pipelineState;
+
+    size_t m_vertexCount = 0;
+    size_t m_indexCount = 0;
 
     winrt::com_ptr<ID3D12Resource> m_posBuffer;
     winrt::com_ptr<ID3D12Resource> m_indexBuffer;
