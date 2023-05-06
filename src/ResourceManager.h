@@ -93,3 +93,29 @@ private:
 
     winrt::com_ptr<IWICImagingFactory> m_wicFactory;
 };
+
+class DescriptorHeap
+{
+public:
+    DescriptorHeap(const D3D12_DESCRIPTOR_HEAP_DESC& heapDesc, ID3D12Device* device);
+
+    struct Handles
+    {
+        D3D12_CPU_DESCRIPTOR_HANDLE CpuHandle;
+        D3D12_GPU_DESCRIPTOR_HANDLE GpuHandle;
+    };
+
+    Handles Allocate();
+
+    ID3D12DescriptorHeap* Inner();
+
+private:
+    uint32_t m_descriptorSize = 0;
+
+    size_t m_totalSize = 0;
+
+    winrt::com_ptr<ID3D12DescriptorHeap> m_descriptorHeap;
+
+    Handles m_currentHandles;
+    size_t m_currentSize = 0;
+};

@@ -1,15 +1,10 @@
+#include "Common.h"
+
 struct RayPayload {
     float4 Color;
 };
 
 typedef BuiltInTriangleIntersectionAttributes IntersectAttributes;
-
-struct SphereLight
-{
-    float3 Position;
-    float Radius;
-    float3 L;
-};
 
 // Global descriptors.
 

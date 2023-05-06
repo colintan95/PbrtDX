@@ -234,3 +234,35 @@ void ResourceManager::WaitForGpu()
 
     WaitForSingleObjectEx(m_fenceEvent, INFINITE, false);
 }
+
+DescriptorHeap::DescriptorHeap(const D3D12_DESCRIPTOR_HEAP_DESC& heapDesc, ID3D12Device* device)
+{
+    check_hresult(device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(m_descriptorHeap.put())));
+
+    m_descriptorSize = device->GetDescriptorHandleIncrementSize(heapDesc.Type);
+
+    m_totalSize = heapDesc.NumDescriptors;
+
+    m_currentHandles.CpuHandle = m_descriptorHeap->GetCPUDescriptorHandleForHeapStart();
+    m_currentHandles.GpuHandle = m_descriptorHeap->GetGPUDescriptorHandleForHeapStart();
+}
+
+DescriptorHeap::Handles DescriptorHeap::Allocate()
+{
+    if (m_currentSize >= m_totalSize)
+        throw std::runtime_error("No descriptors left");
+
+    auto res = m_currentHandles;
+
+    m_currentHandles.CpuHandle.ptr += m_descriptorSize;
+    m_currentHandles.GpuHandle.ptr += m_descriptorSize;
+
+    ++m_currentSize;
+
+    return res;
+}
+
+ID3D12DescriptorHeap* DescriptorHeap::Inner()
+{
+    return m_descriptorHeap.get();
+}

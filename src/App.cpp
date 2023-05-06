@@ -2,6 +2,7 @@
 
 #include "gen/Shader.h"
 #include "Mesh.h"
+#include "shaders/Common.h"
 
 #include <d3dx12.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -74,8 +75,6 @@ void App::CreateDevice()
     }
 
     check_hresult(D3D12CreateDevice(adapter.get(), featureLevel, IID_PPV_ARGS(m_device.put())));
-
-    m_device.as(m_dxrDevice);
 }
 
 void App::CreateCmdQueue()
@@ -165,6 +164,9 @@ void App::CreatePipeline()
         params[Global::Param::Sampler].DescriptorTable.pDescriptorRanges =
             &ranges[Global::Range::Sampler];
 
+        params[Global::Param::Lights].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[Global::Param::Lights].Descriptor.ShaderRegister = 1;
+
         D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc{};
         rootSigDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
         rootSigDesc.Desc_1_1.NumParameters = _countof(params);
@@ -234,7 +236,7 @@ void App::CreatePipeline()
     D3D12_DXIL_LIBRARY_DESC dxilLibDesc{};
     dxilLibDesc.DXILLibrary.pShaderBytecode = g_shader;
     dxilLibDesc.DXILLibrary.BytecodeLength = ARRAYSIZE(g_shader);
-    dxilLibDesc.NumExports = static_cast<UINT>(dxilExports.size());
+    dxilLibDesc.NumExports = static_cast<uint32_t>(dxilExports.size());
     dxilLibDesc.pExports = dxilExports.data();
 
     subObjs[SubObj::DxilLib].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
@@ -246,7 +248,7 @@ void App::CreatePipeline()
     subObjs[SubObj::HitGroupRootSig].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
     subObjs[SubObj::HitGroupRootSig].pDesc = &hitGroupRootSigSubObj;
 
-    LPCWSTR hitGroupRootSigAssocExports[] = {kClosestHitShaderName};
+    const wchar_t* hitGroupRootSigAssocExports[] = {kClosestHitShaderName};
 
     D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION hitGroupRootSigAssoc{};
     hitGroupRootSigAssoc.pSubobjectToAssociate = &subObjs[SubObj::HitGroupRootSig];
@@ -292,7 +294,7 @@ void App::CreatePipeline()
     pipelineDesc.NumSubobjects = _countof(subObjs);
     pipelineDesc.pSubobjects = subObjs;
 
-    check_hresult(m_dxrDevice->CreateStateObject(&pipelineDesc, IID_PPV_ARGS(&m_pipeline)));
+    check_hresult(m_device->CreateStateObject(&pipelineDesc, IID_PPV_ARGS(&m_pipeline)));
 }
 
 namespace
@@ -327,19 +329,21 @@ void App::LoadScene()
 
     m_transformBuffer = m_resourceManager->CreateUploadBuffer(sizeof(Mat3x4) * m_geometries.size());
 
-    auto it = m_resourceManager->GetUploadIterator<Mat3x4>(m_transformBuffer.get());
-
-    for (size_t i = 0; i < m_geometries.size(); ++i)
     {
-        glm::mat4 transform = glm::transpose(transforms[i]);
+        auto it = m_resourceManager->GetUploadIterator<Mat3x4>(m_transformBuffer.get());
 
-        it->Rows[0] = transform[0];
-        it->Rows[1] = transform[1];
-        it->Rows[2] = transform[2];
+        for (size_t i = 0; i < m_geometries.size(); ++i)
+        {
+            glm::mat4 transform = glm::transpose(transforms[i]);
 
-        m_geometries[i].Transform = it.GetGpuAddress();
+            it->Rows[0] = transform[0];
+            it->Rows[1] = transform[1];
+            it->Rows[2] = transform[2];
 
-        ++it;
+            m_geometries[i].Transform = it.GetGpuAddress();
+
+            ++it;
+        }
     }
 
     {
@@ -354,8 +358,23 @@ void App::LoadScene()
         auto data = std::as_bytes(std::span(&lightAabb, 1));
 
         m_aabbBuffer = m_resourceManager->CreateBuffer(data.size());
-
         m_resourceManager->UploadToBuffer(m_aabbBuffer.get(), 0, data);
+    }
+
+    {
+        m_lightBuffer = m_resourceManager->CreateUploadBuffer(sizeof(SphereLight) * 2);
+
+        auto it = m_resourceManager->GetUploadIterator<SphereLight>(m_lightBuffer.get());
+
+        it->Position = glm::vec3(34.92f, 55.92f, -15.351f);
+        it->Radius = 7.5f;
+        it->L = glm::vec3(41.5594f, 43.3127f, 45.066f);
+        ++it;
+
+        it->Position = glm::vec3(-32.892f, 55.92f, 36.293f);
+        it->Radius = 7.5f;
+        it->L = glm::vec3(65.066f, 63.3127f, 61.5594f);
+        ++it;
     }
 }
 
@@ -369,15 +388,20 @@ void App::LoadGeometry(std::filesystem::path path, std::filesystem::path texture
         auto data = std::as_bytes(std::span(mesh.Positions));
 
         geometry->Positions = m_resourceManager->CreateBuffer(data.size());
-
         m_resourceManager->UploadToBuffer(geometry->Positions.get(), 0, data);
+    }
+
+    {
+        auto data = std::as_bytes(std::span(mesh.Normals));
+
+        geometry->Normals = m_resourceManager->CreateBuffer(data.size());
+        m_resourceManager->UploadToBuffer(geometry->Normals.get(), 0, data);
     }
 
     {
         auto data = std::as_bytes(std::span(mesh.UVs));
 
         geometry->UVs = m_resourceManager->CreateBuffer(data.size());
-
         m_resourceManager->UploadToBuffer(geometry->UVs.get(), 0, data);
     }
 
@@ -385,7 +409,6 @@ void App::LoadGeometry(std::filesystem::path path, std::filesystem::path texture
         auto data = std::as_bytes(std::span(mesh.Indices));
 
         geometry->Indices = m_resourceManager->CreateBuffer(data.size());
-
         m_resourceManager->UploadToBuffer(geometry->Indices.get(), 0, data);
     }
 
@@ -431,7 +454,7 @@ void App::CreateAccelerationStructures()
         blasInputs.pGeometryDescs = geometryDescs.data();
 
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuildInfo{};
-        m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&blasInputs, &prebuildInfo);
+        m_device->GetRaytracingAccelerationStructurePrebuildInfo(&blasInputs, &prebuildInfo);
 
         m_blas = m_resourceManager->CreateBuffer(
             prebuildInfo.ResultDataMaxSizeInBytes,
@@ -473,7 +496,7 @@ void App::CreateAccelerationStructures()
         blasInputs.pGeometryDescs = &geometryDesc;
 
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO prebuildInfo{};
-        m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&blasInputs, &prebuildInfo);
+        m_device->GetRaytracingAccelerationStructurePrebuildInfo(&blasInputs, &prebuildInfo);
 
         m_lightBlas = m_resourceManager->CreateBuffer(
             prebuildInfo.ResultDataMaxSizeInBytes,
@@ -503,7 +526,7 @@ void App::CreateAccelerationStructures()
 
     {
         instanceDescBuffer = m_resourceManager->CreateUploadBuffer(
-            sizeof(D3D12_RAYTRACING_INSTANCE_DESC) * 2);
+            sizeof(D3D12_RAYTRACING_INSTANCE_DESC) * 1);
 
         {
             auto it = m_resourceManager->GetUploadIterator<D3D12_RAYTRACING_INSTANCE_DESC>(
@@ -516,27 +539,27 @@ void App::CreateAccelerationStructures()
             it->AccelerationStructure = m_blas->GetGPUVirtualAddress();
             ++it;
 
-            it->Transform[0][0] = 1.f;
-            it->Transform[1][1] = 1.f;
-            it->Transform[2][2] = 1.f;
-            it->Transform[0][3] = 0.f;
-            it->Transform[1][3] = 2.f;
-            it->Transform[2][3] = 6.f;
-            it->InstanceMask = 2;
-            it->InstanceContributionToHitGroupIndex = m_geometries.size();
-            it->AccelerationStructure = m_lightBlas->GetGPUVirtualAddress();
-            ++it;
+            // it->Transform[0][0] = 1.f;
+            // it->Transform[1][1] = 1.f;
+            // it->Transform[2][2] = 1.f;
+            // it->Transform[0][3] = 0.f;
+            // it->Transform[1][3] = 2.f;
+            // it->Transform[2][3] = 6.f;
+            // it->InstanceMask = 2;
+            // it->InstanceContributionToHitGroupIndex = m_geometries.size();
+            // it->AccelerationStructure = m_lightBlas->GetGPUVirtualAddress();
+            // ++it;
         }
 
         D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS tlasInputs{};
         tlasInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL;
         tlasInputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
         tlasInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-        tlasInputs.NumDescs = 2;
+        tlasInputs.NumDescs = 1;
         tlasInputs.InstanceDescs = instanceDescBuffer->GetGPUVirtualAddress();
 
         D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO tlasPrebuildInfo{};
-        m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&tlasInputs, &tlasPrebuildInfo);
+        m_device->GetRaytracingAccelerationStructurePrebuildInfo(&tlasInputs, &tlasPrebuildInfo);
 
         m_tlas = m_resourceManager->CreateBuffer(
             tlasPrebuildInfo.ResultDataMaxSizeInBytes,
@@ -585,24 +608,18 @@ void App::CreateDescriptors()
         heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
-        check_hresult(m_device->CreateDescriptorHeap(&heapDesc,
-                                                     IID_PPV_ARGS(m_descriptorHeap.put())));
+        m_descriptorHeap = std::make_unique<DescriptorHeap>(heapDesc, m_device.get());
     }
 
-    D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle = m_descriptorHeap->GetCPUDescriptorHandleForHeapStart();
-    D3D12_GPU_DESCRIPTOR_HANDLE gpuHandle = m_descriptorHeap->GetGPUDescriptorHandleForHeapStart();
+    {
+        D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
+        uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 
-    uint32_t descriptorSize = m_device->GetDescriptorHandleIncrementSize(
-        D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        auto handles = m_descriptorHeap->Allocate();
 
-    D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
-    uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
-
-    m_device->CreateUnorderedAccessView(m_film.get(), nullptr, &uavDesc, cpuHandle);
-    m_filmUav = gpuHandle;
-
-    cpuHandle.ptr += descriptorSize;
-    gpuHandle.ptr += descriptorSize;
+        m_device->CreateUnorderedAccessView(m_film.get(), nullptr, &uavDesc, handles.CpuHandle);
+        m_filmUav = handles.GpuHandle;
+    }
 
     for (auto& geom : m_geometries)
     {
@@ -613,11 +630,10 @@ void App::CreateDescriptors()
         srvDesc.Texture2D.MostDetailedMip = 0;
         srvDesc.Texture2D.MipLevels = 1;
 
-        m_device->CreateShaderResourceView(geom.Texture.get(), &srvDesc, cpuHandle);
-        geom.TextureSrv = gpuHandle;
+        auto handles = m_descriptorHeap->Allocate();
 
-        cpuHandle.ptr += descriptorSize;
-        gpuHandle.ptr += descriptorSize;
+        m_device->CreateShaderResourceView(geom.Texture.get(), &srvDesc, handles.CpuHandle);
+        geom.TextureSrv = handles.GpuHandle;
     }
 
     {
@@ -626,26 +642,30 @@ void App::CreateDescriptors()
         heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
         heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
-        check_hresult(m_device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(m_samplerHeap.put())));
+        m_samplerHeap = std::make_unique<DescriptorHeap>(heapDesc, m_device.get());
     }
 
-    D3D12_SAMPLER_DESC samplerDesc{};
-    samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
-    samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-    samplerDesc.MinLOD = 0.f;
-    samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
-    samplerDesc.MipLODBias = 0.0f;
-    samplerDesc.MaxAnisotropy = 1;
-    samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
-    samplerDesc.BorderColor[0] = 0;
-    samplerDesc.BorderColor[1] = 0;
-    samplerDesc.BorderColor[2] = 0;
-    samplerDesc.BorderColor[3] = 0;
+    {
+        D3D12_SAMPLER_DESC samplerDesc{};
+        samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+        samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samplerDesc.MinLOD = 0.f;
+        samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+        samplerDesc.MipLODBias = 0.0f;
+        samplerDesc.MaxAnisotropy = 1;
+        samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+        samplerDesc.BorderColor[0] = 0;
+        samplerDesc.BorderColor[1] = 0;
+        samplerDesc.BorderColor[2] = 0;
+        samplerDesc.BorderColor[3] = 0;
 
-    m_device->CreateSampler(&samplerDesc, m_samplerHeap->GetCPUDescriptorHandleForHeapStart());
-    m_sampler = m_samplerHeap->GetGPUDescriptorHandleForHeapStart();
+        auto handles = m_samplerHeap->Allocate();
+
+        m_device->CreateSampler(&samplerDesc, handles.CpuHandle);
+        m_sampler = handles.GpuHandle;
+    }
 }
 
 static size_t Align(size_t size, size_t alignment) {
@@ -761,7 +781,7 @@ void App::Render()
 
     m_cmdList->SetComputeRootSignature(m_globalRootSig.get());
 
-    ID3D12DescriptorHeap* descriptorHeaps[] = {m_descriptorHeap.get(), m_samplerHeap.get()};
+    ID3D12DescriptorHeap* descriptorHeaps[] = {m_descriptorHeap->Inner(), m_samplerHeap->Inner()};
     m_cmdList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
     m_cmdList->SetComputeRootShaderResourceView(Global::Param::Scene,
@@ -770,6 +790,9 @@ void App::Render()
     m_cmdList->SetComputeRootDescriptorTable(Global::Param::Film, m_filmUav);
 
     m_cmdList->SetComputeRootDescriptorTable(Global::Param::Sampler, m_sampler);
+
+    m_cmdList->SetComputeRootShaderResourceView(Global::Param::Lights,
+                                                m_lightBuffer->GetGPUVirtualAddress());
 
     D3D12_DISPATCH_RAYS_DESC dispatchDesc{};
 
@@ -851,41 +874,6 @@ void App::Render()
 
         WaitForSingleObjectEx(m_fenceEvent, INFINITE, false);
     }
-}
-
-void App::UploadToBuffer(ID3D12Resource* buffer, const uint8_t* data, size_t size)
-{
-    winrt::com_ptr<ID3D12Resource> uploadBuffer;
-
-    {
-        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
-        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(size);
-
-        check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
-                                                        &resourceDesc,
-                                                        D3D12_RESOURCE_STATE_GENERIC_READ,
-                                                        nullptr,
-                                                        IID_PPV_ARGS(uploadBuffer.put())));
-    }
-
-    uint8_t* ptr = nullptr;
-    check_hresult(uploadBuffer->Map(0, nullptr, reinterpret_cast<void**>(&ptr)));
-
-    memcpy(ptr, data, size);
-
-    uploadBuffer->Unmap(0, nullptr);
-
-    check_hresult(m_cmdAllocator->Reset());
-    check_hresult(m_cmdList->Reset(m_cmdAllocator.get(), nullptr));
-
-    m_cmdList->CopyBufferRegion(buffer, 0, uploadBuffer.get(), 0, size);
-
-    check_hresult(m_cmdList->Close());
-
-    ID3D12CommandList* cmdLists[] = {m_cmdList.get()};
-    m_cmdQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
-
-    WaitForGpu();
 }
 
 void App::WaitForGpu()

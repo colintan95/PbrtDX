@@ -42,9 +42,9 @@ private:
 
     void CreateShaderTables();
 
-    void UploadToBuffer(ID3D12Resource* buffer, const uint8_t* data, size_t size);
-
     void WaitForGpu();
+
+    std::unique_ptr<ResourceManager> m_resourceManager;
 
     HWND m_hwnd;
 
@@ -53,25 +53,19 @@ private:
 
     winrt::com_ptr<IDXGIFactory6> m_factory;
 
-    winrt::com_ptr<ID3D12Device> m_device;
-    winrt::com_ptr<ID3D12Device5> m_dxrDevice;
+    winrt::com_ptr<ID3D12Device5> m_device;
 
     winrt::com_ptr<ID3D12CommandQueue> m_cmdQueue;
-
-    static constexpr int NUM_FRAMES = 2;
 
     winrt::com_ptr<IDXGISwapChain3> m_swapChain;
 
     winrt::com_ptr<ID3D12CommandAllocator> m_cmdAllocator;
-
     winrt::com_ptr<ID3D12GraphicsCommandList4> m_cmdList;
 
     winrt::com_ptr<ID3D12Fence> m_fence;
     uint64_t m_fenceValue = 0;
 
     HANDLE m_fenceEvent;
-
-    std::unique_ptr<ResourceManager> m_resourceManager;
 
     struct Frame
     {
@@ -81,8 +75,9 @@ private:
         uint64_t FenceWaitValue = 0;
     };
 
-    Frame m_frames[NUM_FRAMES];
+    static constexpr int NUM_FRAMES = 2;
 
+    Frame m_frames[NUM_FRAMES];
     int m_currentFrame = 0;
 
     winrt::com_ptr<ID3D12RootSignature> m_globalRootSig;
@@ -90,11 +85,10 @@ private:
 
     winrt::com_ptr<ID3D12StateObject> m_pipeline;
 
-    winrt::com_ptr<ID3D12Resource> m_transformBuffer;
-
     struct Geometry
     {
         winrt::com_ptr<ID3D12Resource> Positions;
+        winrt::com_ptr<ID3D12Resource> Normals;
         winrt::com_ptr<ID3D12Resource> UVs;
 
         winrt::com_ptr<ID3D12Resource> Indices;
@@ -110,7 +104,11 @@ private:
 
     std::vector<Geometry> m_geometries;
 
+    winrt::com_ptr<ID3D12Resource> m_transformBuffer;
+
     winrt::com_ptr<ID3D12Resource> m_aabbBuffer;
+
+    winrt::com_ptr<ID3D12Resource> m_lightBuffer;
 
     winrt::com_ptr<ID3D12Resource> m_blas;
     winrt::com_ptr<ID3D12Resource> m_lightBlas;
@@ -119,11 +117,11 @@ private:
 
     winrt::com_ptr<ID3D12Resource> m_film;
 
-    winrt::com_ptr<ID3D12DescriptorHeap> m_descriptorHeap;
+    std::unique_ptr<DescriptorHeap> m_descriptorHeap;
 
     D3D12_GPU_DESCRIPTOR_HANDLE m_filmUav;
 
-    winrt::com_ptr<ID3D12DescriptorHeap> m_samplerHeap;
+    std::unique_ptr<DescriptorHeap> m_samplerHeap;
 
     D3D12_GPU_DESCRIPTOR_HANDLE m_sampler;
 
@@ -157,6 +155,7 @@ private:
                 Scene = 0,
                 Film,
                 Sampler,
+                Lights,
                 NUM_PARAMS
             };
         };

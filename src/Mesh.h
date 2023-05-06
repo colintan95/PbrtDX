@@ -8,6 +8,7 @@
 struct Mesh
 {
     std::vector<glm::vec3> Positions;
+    std::vector<glm::vec3> Normals;
     std::vector<glm::vec2> UVs;
 
     std::vector<uint32_t> Indices;

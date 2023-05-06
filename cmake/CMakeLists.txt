@@ -11,6 +11,6 @@ function(compile_shader)
     add_custom_command(
         OUTPUT ${SHADER_OUTPUT}
         COMMAND ${dxc_path} ${SHADER_SOURCE} -Fh ${SHADER_OUTPUT} -Vn ${SHADER_VAR_NAME}
-                ${SHADER_ARGS}
+                -DHLSL ${SHADER_ARGS}
         MAIN_DEPENDENCY ${SHADER_SOURCE})
 endfunction()

@@ -119,6 +119,15 @@ void LoadMeshFromPlyFile(std::filesystem::path path, Mesh* mesh)
         throw std::runtime_error("Could not find vertex data.");
     }
 
+    mesh->Normals.resize(vertexCount);
+
+    if (ply_set_read_cb(ply, "vertex", "nx", PlyVertexCallback, mesh->Normals.data(), 0x30) == 0 ||
+        ply_set_read_cb(ply, "vertex", "ny", PlyVertexCallback, mesh->Normals.data(), 0x31) == 0 ||
+        ply_set_read_cb(ply, "vertex", "nz", PlyVertexCallback, mesh->Normals.data(), 0x32) == 0)
+    {
+        throw std::runtime_error("Could not find vertex data.");
+    }
+
     mesh->UVs.resize(vertexCount);
 
     if (ply_set_read_cb(ply, "vertex", "u", PlyVertexCallback, mesh->UVs.data(), 0x20) == 0 ||
