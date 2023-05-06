@@ -1,11 +1,11 @@
-#include "ImageLoader.h"
+#include "ResourceManager.h"
 
 #include <d3dx12.h>
 
 using winrt::check_hresult;
 using winrt::com_ptr;
 
-ImageLoader::ImageLoader(ID3D12Device* device) : m_device(device)
+ResourceManager::ResourceManager(ID3D12Device* device) : m_device(device)
 {
     static constexpr auto cmdListType = D3D12_COMMAND_LIST_TYPE_COPY;
 
@@ -25,11 +25,43 @@ ImageLoader::ImageLoader(ID3D12Device* device) : m_device(device)
                                         IID_PPV_ARGS(m_fence.put())));
     ++m_fenceValue;
 
+    m_fenceEvent = CreateEvent(nullptr, false, false, nullptr);
+
     check_hresult(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
                                    IID_PPV_ARGS(m_wicFactory.put())));
 }
 
-com_ptr<ID3D12Resource> ImageLoader::LoadImage(std::filesystem::path path)
+com_ptr<ID3D12Resource> ResourceManager::CreateBuffer(size_t size, D3D12_RESOURCE_FLAGS flags,
+                                                      D3D12_RESOURCE_STATES initialState)
+{
+    CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
+    CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(size, flags);
+
+    com_ptr<ID3D12Resource> resource;
+
+    check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                                                    &resourceDesc, initialState, nullptr,
+                                                    IID_PPV_ARGS(resource.put())));
+
+    return resource;
+}
+
+com_ptr<ID3D12Resource> ResourceManager::CreateUploadBuffer(size_t size)
+{
+    CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
+    CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(size);
+
+    com_ptr<ID3D12Resource> resource;
+
+    check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                                                    &resourceDesc,
+                                                    D3D12_RESOURCE_STATE_GENERIC_READ, nullptr,
+                                                    IID_PPV_ARGS(resource.put())));
+
+    return resource;
+}
+
+com_ptr<ID3D12Resource> ResourceManager::LoadImage(std::filesystem::path path)
 {
     com_ptr<IWICBitmapDecoder> decoder;
     check_hresult(m_wicFactory->CreateDecoderFromFilename(path.wstring().c_str(), nullptr,
@@ -149,4 +181,52 @@ com_ptr<ID3D12Resource> ImageLoader::LoadImage(std::filesystem::path path)
     ++m_fenceValue;
 
     return resource;
+}
+
+void ResourceManager::UploadToBuffer(ID3D12Resource* dstResource, size_t dstOffset,
+                                     std::span<const std::byte> srcData)
+{
+    winrt::com_ptr<ID3D12Resource> uploadBuffer;
+
+    {
+        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_UPLOAD);
+        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(srcData.size());
+
+        check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                                                        &resourceDesc,
+                                                        D3D12_RESOURCE_STATE_GENERIC_READ,
+                                                        nullptr,
+                                                        IID_PPV_ARGS(uploadBuffer.put())));
+    }
+
+    uint8_t* ptr = nullptr;
+    check_hresult(uploadBuffer->Map(0, nullptr, reinterpret_cast<void**>(&ptr)));
+
+    memcpy(ptr, srcData.data(), srcData.size());
+
+    uploadBuffer->Unmap(0, nullptr);
+
+    check_hresult(m_cmdAllocator->Reset());
+    check_hresult(m_cmdList->Reset(m_cmdAllocator.get(), nullptr));
+
+    m_cmdList->CopyBufferRegion(dstResource, dstOffset, uploadBuffer.get(), 0, srcData.size());
+
+    check_hresult(m_cmdList->Close());
+
+    ID3D12CommandList* cmdLists[] = {m_cmdList.get()};
+    m_copyQueue->ExecuteCommandLists(_countof(cmdLists), cmdLists);
+
+    WaitForGpu();
+}
+
+void ResourceManager::WaitForGpu()
+{
+    uint64_t waitValue = m_fenceValue;
+    ++m_fenceValue;
+
+    m_copyQueue->Signal(m_fence.get(), waitValue);
+
+    check_hresult(m_fence->SetEventOnCompletion(waitValue, m_fenceEvent));
+
+    WaitForSingleObjectEx(m_fenceEvent, INFINITE, false);
 }

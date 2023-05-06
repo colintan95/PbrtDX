@@ -1,8 +1,12 @@
 #pragma once
 
+#include "ResourceManager.h"
+
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <winrt/base.h>
+
+#include <vector>
 
 class App
 {
@@ -26,7 +30,7 @@ private:
 
     void CreateAccelerationStructures();
 
-    void CreateRaytracingBuffers();
+    void CreateSharedResources();
 
     void CreateDescriptors();
 
@@ -61,6 +65,8 @@ private:
 
     HANDLE m_fenceEvent;
 
+    std::unique_ptr<ResourceManager> m_resourceManager;
+
     struct Frame
     {
         winrt::com_ptr<ID3D12Resource> SwapChainBuffer;
@@ -77,17 +83,22 @@ private:
 
     winrt::com_ptr<ID3D12StateObject> m_pipelineState;
 
-    size_t m_vertexCount = 0;
-    size_t m_indexCount = 0;
+    struct Geometry
+    {
+        winrt::com_ptr<ID3D12Resource> Positions;
+        winrt::com_ptr<ID3D12Resource> UVs;
 
-    winrt::com_ptr<ID3D12Resource> m_posBuffer;
-    winrt::com_ptr<ID3D12Resource> m_uvBuffer;
+        winrt::com_ptr<ID3D12Resource> Indices;
 
-    winrt::com_ptr<ID3D12Resource> m_indexBuffer;
+        uint32_t VertexCount = 0;
+        uint32_t IndexCount = 0;
 
-    winrt::com_ptr<ID3D12Resource> m_transformBuffer;
+        winrt::com_ptr<ID3D12Resource> Transform;
 
-    winrt::com_ptr<ID3D12Resource> m_texture;
+        winrt::com_ptr<ID3D12Resource> Texture;
+    };
+
+    std::vector<Geometry> m_geometries;
 
     winrt::com_ptr<ID3D12Resource> m_blas;
     winrt::com_ptr<ID3D12Resource> m_tlas;

@@ -2,11 +2,11 @@ add_executable(PbrtDX WIN32
     App.cpp
     App.h
     gen/Shader.h
-    ImageLoader.cpp
-    ImageLoader.h
     main.cpp
     Mesh.cpp
-    Mesh.h)
+    Mesh.h
+    ResourceManager.cpp
+    ResourceManager.h)
 
 set(COMMON_SHADER_FLAGS -Zi -Od -Qembed_debug)
 
