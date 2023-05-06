@@ -206,10 +206,16 @@ void ResourceManager::UploadToBuffer(ID3D12Resource* dstResource, size_t dstOffs
 
     uploadBuffer->Unmap(0, nullptr);
 
+    UploadToBuffer(dstResource, dstOffset, uploadBuffer.get(), srcData.size());
+}
+
+void ResourceManager::UploadToBuffer(ID3D12Resource* dstResource, size_t dstOffset,
+                                     ID3D12Resource* srcResource, size_t srcSize)
+{
     check_hresult(m_cmdAllocator->Reset());
     check_hresult(m_cmdList->Reset(m_cmdAllocator.get(), nullptr));
 
-    m_cmdList->CopyBufferRegion(dstResource, dstOffset, uploadBuffer.get(), 0, srcData.size());
+    m_cmdList->CopyBufferRegion(dstResource, dstOffset, srcResource, 0, srcSize);
 
     check_hresult(m_cmdList->Close());
 

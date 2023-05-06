@@ -83,6 +83,8 @@ private:
 
     winrt::com_ptr<ID3D12StateObject> m_pipelineState;
 
+    winrt::com_ptr<ID3D12Resource> m_transformBuffer;
+
     struct Geometry
     {
         winrt::com_ptr<ID3D12Resource> Positions;
@@ -93,7 +95,7 @@ private:
         uint32_t VertexCount = 0;
         uint32_t IndexCount = 0;
 
-        winrt::com_ptr<ID3D12Resource> Transform;
+        D3D12_GPU_VIRTUAL_ADDRESS TransformAddr;
 
         winrt::com_ptr<ID3D12Resource> Texture;
     };

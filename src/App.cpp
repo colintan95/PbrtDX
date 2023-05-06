@@ -229,6 +229,16 @@ void App::CreatePipeline()
                                                  IID_PPV_ARGS(&m_pipelineState)));
 }
 
+namespace
+{
+
+struct Mat3x4
+{
+    glm::vec4 Rows[3];
+};
+
+} // namespace
+
 void App::LoadMeshData()
 {
     Mesh mesh{};
@@ -269,23 +279,22 @@ void App::LoadMeshData()
         glm::rotate(glm::mat4(1.f), 1.35f, glm::vec3(0.403f, -0.755f, -0.517f)) *
         glm::scale(glm::mat4(1.f), glm::vec3(0.5f));
 
-    // Taking the transpose converts the matrix from column-major to row-major. glm uses
-    // column-major while the geometry desc requires row-major.
     transform = glm::transpose(transform);
 
     {
-        size_t dataSize = sizeof(float) * 3 * 4;
+        m_transformBuffer = m_resourceManager->CreateBuffer(sizeof(Mat3x4));
 
-        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
-        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(dataSize);
+        auto allocator = m_resourceManager->GetAllocator<Mat3x4>(m_transformBuffer.get(), 1);
 
-        check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
-                                                        &resourceDesc, D3D12_RESOURCE_STATE_COMMON,
-                                                        nullptr,
-                                                        IID_PPV_ARGS(geometry.Transform.put())));
+        auto entry = allocator.Allocate();
 
-        UploadToBuffer(geometry.Transform.get(), reinterpret_cast<const uint8_t*>(&transform),
-                       dataSize);
+        geometry.TransformAddr = entry.GpuAddress;
+
+        entry.Data->Rows[0] = transform[0];
+        entry.Data->Rows[1] = transform[1];
+        entry.Data->Rows[2] = transform[2];
+
+        allocator.Upload();
     }
 
     geometry.Texture = m_resourceManager->LoadImage("scenes/pbrt-book/texture/book_pbrt.png");
@@ -307,7 +316,7 @@ void App::CreateAccelerationStructures()
     D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc{};
     geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
     geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
-    geometryDesc.Triangles.Transform3x4 = m_geometries[0].Transform->GetGPUVirtualAddress();
+    geometryDesc.Triangles.Transform3x4 = m_geometries[0].TransformAddr;
     geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
     geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
     geometryDesc.Triangles.IndexCount = m_geometries[0].IndexCount;
@@ -343,23 +352,20 @@ void App::CreateAccelerationStructures()
         D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS,
         D3D12_RESOURCE_STATE_RAYTRACING_ACCELERATION_STRUCTURE);
 
-    D3D12_RAYTRACING_INSTANCE_DESC instanceDesc{};
-    instanceDesc.Transform[0][0] = 1;
-    instanceDesc.Transform[1][1] = 1;
-    instanceDesc.Transform[2][2] = 1;
-    instanceDesc.InstanceMask = 1;
-    instanceDesc.AccelerationStructure = m_blas->GetGPUVirtualAddress();
-
     com_ptr<ID3D12Resource> instanceDescBuffer =
-        m_resourceManager->CreateUploadBuffer(sizeof(instanceDesc));
+        m_resourceManager->CreateUploadBuffer(sizeof(D3D12_RAYTRACING_INSTANCE_DESC));
 
     {
-        D3D12_RAYTRACING_INSTANCE_DESC* ptr = nullptr;
-        instanceDescBuffer->Map(0, nullptr, reinterpret_cast<void**>(&ptr));
+        auto it = m_resourceManager->GetCpuIterator<D3D12_RAYTRACING_INSTANCE_DESC>(
+            instanceDescBuffer.get());
 
-        *ptr = instanceDesc;
+        it->Transform[0][0] = 1;
+        it->Transform[1][1] = 1;
+        it->Transform[2][2] = 1;
+        it->InstanceMask = 1;
+        it->AccelerationStructure = m_blas->GetGPUVirtualAddress();
 
-        instanceDescBuffer->Unmap(0, nullptr);
+        ++it;
     }
 
     tlasInputs.InstanceDescs = instanceDescBuffer->GetGPUVirtualAddress();
@@ -477,6 +483,9 @@ static size_t Align(size_t size, size_t alignment) {
     return (size + (alignment - 1)) & ~(alignment - 1);
 }
 
+namespace
+{
+
 struct ShaderId
 {
     uint8_t Data[D3D12_SHADER_IDENTIFIER_SIZE_IN_BYTES];
@@ -488,9 +497,6 @@ struct ShaderId
         memcpy(Data, data, sizeof(Data));
     }
 };
-
-namespace
-{
 
 struct RayGenShaderRecord
 {
