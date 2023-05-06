@@ -67,3 +67,35 @@ void MissShader(inout RayPayload payload)
 {
     payload.Color = float4(0.f, 0.f, 0.f, 1.f);
 }
+
+struct SphereIntersectAttributes {
+    float Unused;
+};
+
+[shader("closesthit")]
+void LightClosestHitShader(inout RayPayload payload, SphereIntersectAttributes attr)
+{
+    payload.Color = float4(1.f, 0.f, 0.f, 1.f);
+}
+
+[shader("intersection")]
+void SphereIntersectShader()
+{
+    float3 origin = ObjectRayOrigin();
+    float3 dir = ObjectRayDirection();
+
+    float radius = 1.f;
+
+    float a = dot(dir, dir);
+    float b = 2 * dot(origin, dir);
+    float c = dot(origin, origin) - radius * radius;
+
+    float det = b * b - 4.f * a * c;
+
+    if (det < 0.f)
+        return;
+
+    float t = (-b - sqrt(det)) / (2.f * a);
+
+    ReportHit(t, 0, (SphereIntersectAttributes)0);
+}

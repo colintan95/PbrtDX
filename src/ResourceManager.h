@@ -38,17 +38,14 @@ public:
 
         T* operator->()
         {
-            return reinterpret_cast<T*>(m_basePtr + m_currentOffset);
-        }
-
-        T& Get()
-        {
-            return *reinterpret_cast<T*>(m_basePtr + m_currentOffset);
+            return m_ptr;
         }
 
         UploadIterator& operator++()
         {
             m_currentOffset += m_stride;
+            m_ptr = reinterpret_cast<T*>(reinterpret_cast<uint8_t*>(m_ptr) + m_stride);
+
             return *this;
         }
 
@@ -63,12 +60,12 @@ public:
         UploadIterator(ID3D12Resource* buffer, size_t stride)
             : m_buffer(buffer), m_stride(stride)
         {
-            winrt::check_hresult(m_buffer->Map(0, nullptr, reinterpret_cast<void**>(&m_basePtr)));
+            winrt::check_hresult(m_buffer->Map(0, nullptr, reinterpret_cast<void**>(&m_ptr)));
         }
 
-        ID3D12Resource* m_buffer = nullptr;
-        uint8_t* m_basePtr = nullptr;
+        T* m_ptr = nullptr;
 
+        ID3D12Resource* m_buffer = nullptr;
         size_t m_stride = 0;
 
         size_t m_currentOffset = 0;

@@ -85,6 +85,59 @@ private:
 
     int m_currentFrame = 0;
 
+    winrt::com_ptr<ID3D12RootSignature> m_globalRootSig;
+    winrt::com_ptr<ID3D12RootSignature> m_hitGroupLocalSig;
+
+    winrt::com_ptr<ID3D12StateObject> m_pipeline;
+
+    winrt::com_ptr<ID3D12Resource> m_transformBuffer;
+
+    struct Geometry
+    {
+        winrt::com_ptr<ID3D12Resource> Positions;
+        winrt::com_ptr<ID3D12Resource> UVs;
+
+        winrt::com_ptr<ID3D12Resource> Indices;
+
+        uint32_t VertexCount = 0;
+        uint32_t IndexCount = 0;
+
+        D3D12_GPU_VIRTUAL_ADDRESS Transform;
+
+        winrt::com_ptr<ID3D12Resource> Texture;
+        D3D12_GPU_DESCRIPTOR_HANDLE TextureSrv;
+    };
+
+    std::vector<Geometry> m_geometries;
+
+    winrt::com_ptr<ID3D12Resource> m_aabbBuffer;
+
+    winrt::com_ptr<ID3D12Resource> m_blas;
+    winrt::com_ptr<ID3D12Resource> m_lightBlas;
+
+    winrt::com_ptr<ID3D12Resource> m_tlas;
+
+    winrt::com_ptr<ID3D12Resource> m_film;
+
+    winrt::com_ptr<ID3D12DescriptorHeap> m_descriptorHeap;
+
+    D3D12_GPU_DESCRIPTOR_HANDLE m_filmUav;
+
+    winrt::com_ptr<ID3D12DescriptorHeap> m_samplerHeap;
+
+    D3D12_GPU_DESCRIPTOR_HANDLE m_sampler;
+
+    struct ShaderTable
+    {
+        winrt::com_ptr<ID3D12Resource> Buffer;
+        size_t Size = 0;
+        size_t Stride = 0;
+    };
+
+    ShaderTable m_rayGenShaderTable;
+    ShaderTable m_hitGroupShaderTable;
+    ShaderTable m_missShaderTable;
+
     struct Global
     {
         struct Range
@@ -129,58 +182,10 @@ private:
             HitGroupRootSig,
             HitGroupRootSigAssoc,
             HitGroup,
+            LightHitGroup,
             ShaderConfig,
             PipelineConfig,
             NUM_OBJS
         };
     };
-
-    winrt::com_ptr<ID3D12RootSignature> m_globalRootSig;
-    winrt::com_ptr<ID3D12RootSignature> m_hitGroupLocalSig;
-
-    winrt::com_ptr<ID3D12StateObject> m_pipeline;
-
-    winrt::com_ptr<ID3D12Resource> m_transformBuffer;
-
-    struct Geometry
-    {
-        winrt::com_ptr<ID3D12Resource> Positions;
-        winrt::com_ptr<ID3D12Resource> UVs;
-
-        winrt::com_ptr<ID3D12Resource> Indices;
-
-        uint32_t VertexCount = 0;
-        uint32_t IndexCount = 0;
-
-        D3D12_GPU_VIRTUAL_ADDRESS Transform;
-
-        winrt::com_ptr<ID3D12Resource> Texture;
-        D3D12_GPU_DESCRIPTOR_HANDLE TextureSrv;
-    };
-
-    std::vector<Geometry> m_geometries;
-
-    winrt::com_ptr<ID3D12Resource> m_blas;
-    winrt::com_ptr<ID3D12Resource> m_tlas;
-
-    winrt::com_ptr<ID3D12Resource> m_film;
-
-    winrt::com_ptr<ID3D12DescriptorHeap> m_descriptorHeap;
-
-    D3D12_GPU_DESCRIPTOR_HANDLE m_filmUav;
-
-    winrt::com_ptr<ID3D12DescriptorHeap> m_samplerHeap;
-
-    D3D12_GPU_DESCRIPTOR_HANDLE m_sampler;
-
-    struct ShaderTable
-    {
-        winrt::com_ptr<ID3D12Resource> Buffer;
-        size_t Size = 0;
-        size_t Stride = 0;
-    };
-
-    ShaderTable m_rayGenShaderTable;
-    ShaderTable m_hitGroupShaderTable;
-    ShaderTable m_missShaderTable;
 };
