@@ -22,6 +22,8 @@ private:
 
     void CreatePipeline();
 
+    void CreateVertexBuffers();
+
     void CreateAccelerationStructures();
 
     void CreateRaytracingBuffers();
@@ -29,6 +31,8 @@ private:
     void CreateDescriptorHeap();
 
     void CreateShaderTables();
+
+    void UploadToBuffer(ID3D12Resource* buffer, const uint8_t* data, size_t size);
 
     void WaitForGpu();
 
@@ -76,6 +80,9 @@ private:
 
     winrt::com_ptr<ID3D12StateObject> m_pipelineState;
 
+    winrt::com_ptr<ID3D12Resource> m_posBuffer;
+    winrt::com_ptr<ID3D12Resource> m_indexBuffer;
+
     winrt::com_ptr<ID3D12Resource> m_blas;
     winrt::com_ptr<ID3D12Resource> m_tlas;
 
@@ -86,5 +93,6 @@ private:
     D3D12_GPU_DESCRIPTOR_HANDLE m_filmUav;
 
     winrt::com_ptr<ID3D12Resource> m_rayGenShaderTable;
+    winrt::com_ptr<ID3D12Resource> m_hitGroupShaderTable;
     winrt::com_ptr<ID3D12Resource> m_missShaderTable;
 };
