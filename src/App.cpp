@@ -128,45 +128,45 @@ void App::CreateCmdList()
 
 void App::CreatePipeline()
 {
-    D3D12_DESCRIPTOR_RANGE1 ranges[3] = {};
+    D3D12_DESCRIPTOR_RANGE1 ranges[Range::NUM_RANGES] = {};
 
-    ranges[0].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[0].NumDescriptors = 1;
-    ranges[0].BaseShaderRegister = 0;
-    ranges[0].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    ranges[Range::Film].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+    ranges[Range::Film].NumDescriptors = 1;
+    ranges[Range::Film].BaseShaderRegister = 0;
+    ranges[Range::Film].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    ranges[1].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    ranges[1].NumDescriptors = 1;
-    ranges[1].BaseShaderRegister = 3;
-    ranges[1].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    ranges[Range::Texture].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    ranges[Range::Texture].NumDescriptors = 1;
+    ranges[Range::Texture].BaseShaderRegister = 3;
+    ranges[Range::Texture].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    ranges[2].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
-    ranges[2].NumDescriptors = 1;
-    ranges[2].BaseShaderRegister = 0;
-    ranges[2].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+    ranges[Range::Sampler].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+    ranges[Range::Sampler].NumDescriptors = 1;
+    ranges[Range::Sampler].BaseShaderRegister = 0;
+    ranges[Range::Sampler].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
-    D3D12_ROOT_PARAMETER1 rootParams[6] = {};
+    D3D12_ROOT_PARAMETER1 rootParams[Shader::NUM_PARAMS] = {};
 
-    rootParams[0].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    rootParams[0].Descriptor.ShaderRegister = 0;
+    rootParams[Shader::Scene].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParams[Shader::Scene].Descriptor.ShaderRegister = 0;
 
-    rootParams[1].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParams[1].DescriptorTable.NumDescriptorRanges = 1;
-    rootParams[1].DescriptorTable.pDescriptorRanges = &ranges[0];
+    rootParams[Shader::Film].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[Shader::Film].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[Shader::Film].DescriptorTable.pDescriptorRanges = &ranges[Range::Film];
 
-    rootParams[2].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    rootParams[2].Descriptor.ShaderRegister = 1;
+    rootParams[Shader::IndexBuffer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParams[Shader::IndexBuffer].Descriptor.ShaderRegister = 1;
 
-    rootParams[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    rootParams[3].Descriptor.ShaderRegister = 2;
+    rootParams[Shader::UVBuffer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+    rootParams[Shader::UVBuffer].Descriptor.ShaderRegister = 2;
 
-    rootParams[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParams[4].DescriptorTable.NumDescriptorRanges = 1;
-    rootParams[4].DescriptorTable.pDescriptorRanges = &ranges[1];
+    rootParams[Shader::Texture].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[Shader::Texture].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[Shader::Texture].DescriptorTable.pDescriptorRanges = &ranges[Range::Texture];
 
-    rootParams[5].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParams[5].DescriptorTable.NumDescriptorRanges = 1;
-    rootParams[5].DescriptorTable.pDescriptorRanges = &ranges[2];
+    rootParams[Shader::Sampler].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    rootParams[Shader::Sampler].DescriptorTable.NumDescriptorRanges = 1;
+    rootParams[Shader::Sampler].DescriptorTable.pDescriptorRanges = &ranges[Range::Sampler];
 
     D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc{};
     rootSigDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
@@ -282,19 +282,16 @@ void App::LoadMeshData()
     transform = glm::transpose(transform);
 
     {
-        m_transformBuffer = m_resourceManager->CreateBuffer(sizeof(Mat3x4));
+        m_transformBuffer = m_resourceManager->CreateUploadBuffer(sizeof(Mat3x4));
 
-        auto allocator = m_resourceManager->GetAllocator<Mat3x4>(m_transformBuffer.get(), 1);
+        auto it = m_resourceManager->GetUploadIterator<Mat3x4>(m_transformBuffer.get());
+        it->Rows[0] = transform[0];
+        it->Rows[1] = transform[1];
+        it->Rows[2] = transform[2];
 
-        auto entry = allocator.Allocate();
+        geometry.TransformAddr = it.GetGpuAddress();
 
-        geometry.TransformAddr = entry.GpuAddress;
-
-        entry.Data->Rows[0] = transform[0];
-        entry.Data->Rows[1] = transform[1];
-        entry.Data->Rows[2] = transform[2];
-
-        allocator.Upload();
+        ++it;
     }
 
     geometry.Texture = m_resourceManager->LoadImage("scenes/pbrt-book/texture/book_pbrt.png");
@@ -356,7 +353,7 @@ void App::CreateAccelerationStructures()
         m_resourceManager->CreateUploadBuffer(sizeof(D3D12_RAYTRACING_INSTANCE_DESC));
 
     {
-        auto it = m_resourceManager->GetCpuIterator<D3D12_RAYTRACING_INSTANCE_DESC>(
+        auto it = m_resourceManager->GetUploadIterator<D3D12_RAYTRACING_INSTANCE_DESC>(
             instanceDescBuffer.get());
 
         it->Transform[0][0] = 1;
@@ -526,8 +523,8 @@ void App::CreateShaderTables()
 
         m_rayGenShaderTable = m_resourceManager->CreateUploadBuffer(stride);
 
-        auto it = m_resourceManager->GetCpuIterator<RayGenShaderRecord>(m_rayGenShaderTable.get(),
-                                                                        stride);
+        auto it = m_resourceManager->GetUploadIterator<RayGenShaderRecord>(
+            m_rayGenShaderTable.get(), stride);
 
         it->ShaderId = ShaderId(stateObjProps->GetShaderIdentifier(L"RayGenShader"));
         ++it;
@@ -539,7 +536,7 @@ void App::CreateShaderTables()
 
         m_hitGroupShaderTable = m_resourceManager->CreateUploadBuffer(stride);
 
-        auto it = m_resourceManager->GetCpuIterator<HitGroupShaderRecord>(
+        auto it = m_resourceManager->GetUploadIterator<HitGroupShaderRecord>(
             m_hitGroupShaderTable.get(), stride);
 
         it->ShaderId = ShaderId(stateObjProps->GetShaderIdentifier(L"HitGroup"));
@@ -552,8 +549,8 @@ void App::CreateShaderTables()
 
         m_missShaderTable = m_resourceManager->CreateUploadBuffer(stride);
 
-        auto it = m_resourceManager->GetCpuIterator<MissShaderRecord>(m_missShaderTable.get(),
-                                                                      stride);
+        auto it = m_resourceManager->GetUploadIterator<MissShaderRecord>(m_missShaderTable.get(),
+                                                                         stride);
 
         it->ShaderId = ShaderId(stateObjProps->GetShaderIdentifier(L"MissShader"));
         ++it;
@@ -570,16 +567,18 @@ void App::Render()
     ID3D12DescriptorHeap* descriptorHeaps[] = {m_descriptorHeap.get(), m_samplerHeap.get()};
     m_cmdList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-    m_cmdList->SetComputeRootShaderResourceView(0, m_tlas->GetGPUVirtualAddress());
+    m_cmdList->SetComputeRootShaderResourceView(Shader::Scene, m_tlas->GetGPUVirtualAddress());
 
-    m_cmdList->SetComputeRootDescriptorTable(1, m_filmUav);
+    m_cmdList->SetComputeRootDescriptorTable(Shader::Film, m_filmUav);
 
-    m_cmdList->SetComputeRootShaderResourceView(2, m_geometries[0].Indices->GetGPUVirtualAddress());
-    m_cmdList->SetComputeRootShaderResourceView(3, m_geometries[0].UVs->GetGPUVirtualAddress());
+    m_cmdList->SetComputeRootShaderResourceView(Shader::IndexBuffer,
+                                                m_geometries[0].Indices->GetGPUVirtualAddress());
+    m_cmdList->SetComputeRootShaderResourceView(Shader::UVBuffer,
+                                                m_geometries[0].UVs->GetGPUVirtualAddress());
 
-    m_cmdList->SetComputeRootDescriptorTable(4, m_textureSrv);
+    m_cmdList->SetComputeRootDescriptorTable(Shader::Texture, m_textureSrv);
 
-    m_cmdList->SetComputeRootDescriptorTable(5, m_sampler);
+    m_cmdList->SetComputeRootDescriptorTable(Shader::Sampler, m_sampler);
 
     D3D12_DISPATCH_RAYS_DESC dispatchDesc{};
 

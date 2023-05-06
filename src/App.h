@@ -79,6 +79,31 @@ private:
 
     int m_currentFrame = 0;
 
+    struct Shader
+    {
+        enum
+        {
+            Scene = 0,
+            Film,
+            IndexBuffer,
+            UVBuffer,
+            Texture,
+            Sampler,
+            NUM_PARAMS
+        };
+    };
+
+    struct Range
+    {
+        enum
+        {
+            Film = 0,
+            Texture,
+            Sampler,
+            NUM_RANGES
+        };
+    };
+
     winrt::com_ptr<ID3D12RootSignature> m_globalRootSig;
 
     winrt::com_ptr<ID3D12StateObject> m_pipelineState;
