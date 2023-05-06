@@ -79,34 +79,60 @@ private:
 
     int m_currentFrame = 0;
 
-    struct Shader
+    struct Global
     {
-        enum
+        struct Range
         {
-            Scene = 0,
-            Film,
-            IndexBuffer,
+            enum
+            {
+                Film = 0,
+                Sampler,
+                NUM_RANGES
+            };
+        };
+
+        struct Param
+        {
+            enum
+            {
+                Scene = 0,
+                Film,
+                Sampler,
+                NUM_PARAMS
+            };
+        };
+    };
+
+    struct HitGroup
+    {
+        enum Param
+        {
+            IndexBuffer = 0,
             UVBuffer,
             Texture,
-            Sampler,
             NUM_PARAMS
         };
     };
 
-    struct Range
+    struct SubObj
     {
         enum
         {
-            Film = 0,
-            Texture,
-            Sampler,
-            NUM_RANGES
+            GlobalRootSig = 0,
+            DxilLib,
+            HitGroupRootSig,
+            HitGroupRootSigAssoc,
+            HitGroup,
+            ShaderConfig,
+            PipelineConfig,
+            NUM_OBJS
         };
     };
 
     winrt::com_ptr<ID3D12RootSignature> m_globalRootSig;
+    winrt::com_ptr<ID3D12RootSignature> m_hitGroupLocalSig;
 
-    winrt::com_ptr<ID3D12StateObject> m_pipelineState;
+    winrt::com_ptr<ID3D12StateObject> m_pipeline;
 
     winrt::com_ptr<ID3D12Resource> m_transformBuffer;
 

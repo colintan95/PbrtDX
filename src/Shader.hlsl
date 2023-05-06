@@ -10,11 +10,6 @@ RaytracingAccelerationStructure g_scene: register(t0);
 
 RWTexture2D<float4> g_film : register(u0);
 
-ByteAddressBuffer g_indexBuffer : register(t1);
-StructuredBuffer<float2> g_uvBuffer : register(t2);
-
-Texture2D g_texture : register(t3);
-
 SamplerState  g_sampler : register(s0);
 
 [shader("raygeneration")]
@@ -43,6 +38,13 @@ void RayGenShader()
 
     g_film[DispatchRaysIndex().xy] = payload.Color;
 }
+
+// ClosestHitShader descriptors.
+
+ByteAddressBuffer g_indexBuffer : register(t0, space1);
+StructuredBuffer<float2> g_uvBuffer : register(t1, space1);
+
+Texture2D g_texture : register(t2, space1);
 
 [shader("closesthit")]
 void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)

@@ -128,105 +128,149 @@ void App::CreateCmdList()
 
 void App::CreatePipeline()
 {
-    D3D12_DESCRIPTOR_RANGE1 ranges[Range::NUM_RANGES] = {};
+    {
+        D3D12_DESCRIPTOR_RANGE1 ranges[Global::Range::NUM_RANGES] = {};
 
-    ranges[Range::Film].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
-    ranges[Range::Film].NumDescriptors = 1;
-    ranges[Range::Film].BaseShaderRegister = 0;
-    ranges[Range::Film].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        ranges[Global::Range::Film].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_UAV;
+        ranges[Global::Range::Film].NumDescriptors = 1;
+        ranges[Global::Range::Film].BaseShaderRegister = 0;
 
-    ranges[Range::Texture].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    ranges[Range::Texture].NumDescriptors = 1;
-    ranges[Range::Texture].BaseShaderRegister = 3;
-    ranges[Range::Texture].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        ranges[Global::Range::Sampler].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
+        ranges[Global::Range::Sampler].NumDescriptors = 1;
+        ranges[Global::Range::Sampler].BaseShaderRegister = 0;
 
-    ranges[Range::Sampler].RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER;
-    ranges[Range::Sampler].NumDescriptors = 1;
-    ranges[Range::Sampler].BaseShaderRegister = 0;
-    ranges[Range::Sampler].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+        D3D12_ROOT_PARAMETER1 params[Global::Param::NUM_PARAMS] = {};
 
-    D3D12_ROOT_PARAMETER1 rootParams[Shader::NUM_PARAMS] = {};
+        params[Global::Param::Scene].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[Global::Param::Scene].Descriptor.ShaderRegister = 0;
 
-    rootParams[Shader::Scene].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    rootParams[Shader::Scene].Descriptor.ShaderRegister = 0;
+        params[Global::Param::Film].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[Global::Param::Film].DescriptorTable.NumDescriptorRanges = 1;
+        params[Global::Param::Film].DescriptorTable.pDescriptorRanges =
+            &ranges[Global::Range::Film];
 
-    rootParams[Shader::Film].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParams[Shader::Film].DescriptorTable.NumDescriptorRanges = 1;
-    rootParams[Shader::Film].DescriptorTable.pDescriptorRanges = &ranges[Range::Film];
+        params[Global::Param::Sampler].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[Global::Param::Sampler].DescriptorTable.NumDescriptorRanges = 1;
+        params[Global::Param::Sampler].DescriptorTable.pDescriptorRanges =
+            &ranges[Global::Range::Sampler];
 
-    rootParams[Shader::IndexBuffer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    rootParams[Shader::IndexBuffer].Descriptor.ShaderRegister = 1;
+        D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc{};
+        rootSigDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+        rootSigDesc.Desc_1_1.NumParameters = _countof(params);
+        rootSigDesc.Desc_1_1.pParameters = params;
+        rootSigDesc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
 
-    rootParams[Shader::UVBuffer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-    rootParams[Shader::UVBuffer].Descriptor.ShaderRegister = 2;
+        com_ptr<ID3DBlob> signatureBlob;
+        com_ptr<ID3DBlob> errorBlob;
+        check_hresult(D3D12SerializeVersionedRootSignature(&rootSigDesc, signatureBlob.put(),
+                                                           errorBlob.put()));
+        check_hresult(m_device->CreateRootSignature(0, signatureBlob->GetBufferPointer(),
+                                                    signatureBlob->GetBufferSize(),
+                                                    IID_PPV_ARGS(m_globalRootSig.put())));
+    }
 
-    rootParams[Shader::Texture].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParams[Shader::Texture].DescriptorTable.NumDescriptorRanges = 1;
-    rootParams[Shader::Texture].DescriptorTable.pDescriptorRanges = &ranges[Range::Texture];
+    {
+        D3D12_DESCRIPTOR_RANGE1 range{};
+        range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+        range.NumDescriptors = 1;
+        range.BaseShaderRegister = 2;
+        range.RegisterSpace = 1;
 
-    rootParams[Shader::Sampler].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-    rootParams[Shader::Sampler].DescriptorTable.NumDescriptorRanges = 1;
-    rootParams[Shader::Sampler].DescriptorTable.pDescriptorRanges = &ranges[Range::Sampler];
+        D3D12_ROOT_PARAMETER1 params[HitGroup::Param::NUM_PARAMS] = {};
 
-    D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc{};
-    rootSigDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
-    rootSigDesc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_NONE;
-    rootSigDesc.Desc_1_1.NumParameters = _countof(rootParams);
-    rootSigDesc.Desc_1_1.pParameters = rootParams;
+        params[HitGroup::Param::IndexBuffer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[HitGroup::Param::IndexBuffer].Descriptor.ShaderRegister = 0;
+        params[HitGroup::Param::IndexBuffer].Descriptor.RegisterSpace = 1;
 
-    com_ptr<ID3DBlob> signatureBlob;
-    com_ptr<ID3DBlob> errorBlob;
-    check_hresult(D3D12SerializeVersionedRootSignature(&rootSigDesc, signatureBlob.put(),
-                                                       errorBlob.put()));
-    check_hresult(m_device->CreateRootSignature(0, signatureBlob->GetBufferPointer(),
-                                                signatureBlob->GetBufferSize(),
-                                                IID_PPV_ARGS(m_globalRootSig.put())));
+        params[HitGroup::Param::UVBuffer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[HitGroup::Param::UVBuffer].Descriptor.ShaderRegister = 1;
+        params[HitGroup::Param::UVBuffer].Descriptor.RegisterSpace = 1;
 
-    std::vector<D3D12_STATE_SUBOBJECT> subObjs;
+        params[HitGroup::Param::Texture].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+        params[HitGroup::Param::Texture].DescriptorTable.NumDescriptorRanges = 1;
+        params[HitGroup::Param::Texture].DescriptorTable.pDescriptorRanges = &range;
+
+        D3D12_VERSIONED_ROOT_SIGNATURE_DESC rootSigDesc{};
+        rootSigDesc.Version = D3D_ROOT_SIGNATURE_VERSION_1_1;
+        rootSigDesc.Desc_1_1.NumParameters = _countof(params);
+        rootSigDesc.Desc_1_1.pParameters = params;
+        rootSigDesc.Desc_1_1.Flags = D3D12_ROOT_SIGNATURE_FLAG_LOCAL_ROOT_SIGNATURE;
+
+        com_ptr<ID3DBlob> signatureBlob;
+        com_ptr<ID3DBlob> errorBlob;
+        check_hresult(D3D12SerializeVersionedRootSignature(&rootSigDesc, signatureBlob.put(),
+                                                           errorBlob.put()));
+        check_hresult(m_device->CreateRootSignature(0, signatureBlob->GetBufferPointer(),
+                                                    signatureBlob->GetBufferSize(),
+                                                    IID_PPV_ARGS(m_hitGroupLocalSig.put())));
+    }
+
+    D3D12_STATE_SUBOBJECT subObjs[SubObj::NUM_OBJS];
 
     D3D12_GLOBAL_ROOT_SIGNATURE globalRootSigSubObj{};
     globalRootSigSubObj.pGlobalRootSignature = m_globalRootSig.get();
 
-    subObjs.push_back({D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE, &globalRootSigSubObj});
+    subObjs[SubObj::GlobalRootSig].Type = D3D12_STATE_SUBOBJECT_TYPE_GLOBAL_ROOT_SIGNATURE;
+    subObjs[SubObj::GlobalRootSig].pDesc = &globalRootSigSubObj;
 
-    std::vector<D3D12_EXPORT_DESC> dxilLibExports;
-    dxilLibExports.push_back({L"RayGenShader", nullptr, D3D12_EXPORT_FLAG_NONE});
-    dxilLibExports.push_back({L"ClosestHitShader", nullptr, D3D12_EXPORT_FLAG_NONE});
-    dxilLibExports.push_back({L"MissShader", nullptr, D3D12_EXPORT_FLAG_NONE});
+    std::vector<D3D12_EXPORT_DESC> dxilExports;
+    dxilExports.push_back({L"RayGenShader", nullptr, D3D12_EXPORT_FLAG_NONE});
+    dxilExports.push_back({L"ClosestHitShader", nullptr, D3D12_EXPORT_FLAG_NONE});
+    dxilExports.push_back({L"MissShader", nullptr, D3D12_EXPORT_FLAG_NONE});
 
-    D3D12_DXIL_LIBRARY_DESC dxilLibSubObj{};
-    dxilLibSubObj.DXILLibrary.pShaderBytecode = g_shader;
-    dxilLibSubObj.DXILLibrary.BytecodeLength = ARRAYSIZE(g_shader);
-    dxilLibSubObj.NumExports = static_cast<UINT>(dxilLibExports.size());
-    dxilLibSubObj.pExports = dxilLibExports.data();
+    D3D12_DXIL_LIBRARY_DESC dxilLibDesc{};
+    dxilLibDesc.DXILLibrary.pShaderBytecode = g_shader;
+    dxilLibDesc.DXILLibrary.BytecodeLength = ARRAYSIZE(g_shader);
+    dxilLibDesc.NumExports = static_cast<UINT>(dxilExports.size());
+    dxilLibDesc.pExports = dxilExports.data();
 
-    subObjs.push_back({D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY, &dxilLibSubObj});
+    subObjs[SubObj::DxilLib].Type = D3D12_STATE_SUBOBJECT_TYPE_DXIL_LIBRARY;
+    subObjs[SubObj::DxilLib].pDesc = &dxilLibDesc;
+
+    D3D12_LOCAL_ROOT_SIGNATURE hitGroupRootSigSubObj{};
+    hitGroupRootSigSubObj.pLocalRootSignature = m_hitGroupLocalSig.get();
+
+    subObjs[SubObj::HitGroupRootSig].Type = D3D12_STATE_SUBOBJECT_TYPE_LOCAL_ROOT_SIGNATURE;
+    subObjs[SubObj::HitGroupRootSig].pDesc = &hitGroupRootSigSubObj;
+
+    LPCWSTR hitGroupRootSigAssocExports[] = {L"ClosestHitShader"};
+
+    D3D12_SUBOBJECT_TO_EXPORTS_ASSOCIATION hitGroupRootSigAssoc{};
+    hitGroupRootSigAssoc.pSubobjectToAssociate = &subObjs[SubObj::HitGroupRootSig];
+    hitGroupRootSigAssoc.NumExports = _countof(hitGroupRootSigAssocExports);
+    hitGroupRootSigAssoc.pExports = hitGroupRootSigAssocExports;
+
+    subObjs[SubObj::HitGroupRootSigAssoc].Type =
+        D3D12_STATE_SUBOBJECT_TYPE_SUBOBJECT_TO_EXPORTS_ASSOCIATION;
+    subObjs[SubObj::HitGroupRootSigAssoc].pDesc = &hitGroupRootSigAssoc;
 
     D3D12_HIT_GROUP_DESC hitGroupDesc{};
     hitGroupDesc.HitGroupExport = L"HitGroup";
     hitGroupDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
     hitGroupDesc.ClosestHitShaderImport = L"ClosestHitShader";
 
-    subObjs.push_back({D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP, &hitGroupDesc});
+    subObjs[SubObj::HitGroup].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
+    subObjs[SubObj::HitGroup].pDesc = &hitGroupDesc;
 
     D3D12_RAYTRACING_SHADER_CONFIG shaderConfig{};
     shaderConfig.MaxPayloadSizeInBytes = sizeof(float) * 4;
     shaderConfig.MaxAttributeSizeInBytes = sizeof(float) * 2;
 
-    subObjs.push_back({D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG, &shaderConfig});
+    subObjs[SubObj::ShaderConfig].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
+    subObjs[SubObj::ShaderConfig].pDesc = &shaderConfig;
 
     D3D12_RAYTRACING_PIPELINE_CONFIG pipelineConfig{};
     pipelineConfig.MaxTraceRecursionDepth = 1;
 
-    subObjs.push_back({D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG , &pipelineConfig});
+    subObjs[SubObj::PipelineConfig].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
+    subObjs[SubObj::PipelineConfig].pDesc = &pipelineConfig;
 
-    D3D12_STATE_OBJECT_DESC pipelineStateDesc{};
-    pipelineStateDesc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
-    pipelineStateDesc.NumSubobjects = static_cast<UINT>(subObjs.size());
-    pipelineStateDesc.pSubobjects = subObjs.data();
+    D3D12_STATE_OBJECT_DESC pipelineDesc{};
+    pipelineDesc.Type = D3D12_STATE_OBJECT_TYPE_RAYTRACING_PIPELINE;
+    pipelineDesc.NumSubobjects = _countof(subObjs);
+    pipelineDesc.pSubobjects = subObjs;
 
-    check_hresult(m_dxrDevice->CreateStateObject(&pipelineStateDesc,
-                                                 IID_PPV_ARGS(&m_pipelineState)));
+    check_hresult(m_dxrDevice->CreateStateObject(&pipelineDesc, IID_PPV_ARGS(&m_pipeline)));
 }
 
 namespace
@@ -503,6 +547,9 @@ struct RayGenShaderRecord
 struct HitGroupShaderRecord
 {
     ShaderId ShaderId;
+    D3D12_GPU_VIRTUAL_ADDRESS IndexBuffer;
+    D3D12_GPU_VIRTUAL_ADDRESS UVBuffer;
+    D3D12_GPU_DESCRIPTOR_HANDLE Texture;
 };
 
 struct MissShaderRecord
@@ -514,8 +561,8 @@ struct MissShaderRecord
 
 void App::CreateShaderTables()
 {
-    com_ptr<ID3D12StateObjectProperties> stateObjProps;
-    m_pipelineState.as(stateObjProps);
+    com_ptr<ID3D12StateObjectProperties> pipelineProps;
+    m_pipeline.as(pipelineProps);
 
     {
         size_t stride = Align(sizeof(RayGenShaderRecord),
@@ -526,7 +573,7 @@ void App::CreateShaderTables()
         auto it = m_resourceManager->GetUploadIterator<RayGenShaderRecord>(
             m_rayGenShaderTable.get(), stride);
 
-        it->ShaderId = ShaderId(stateObjProps->GetShaderIdentifier(L"RayGenShader"));
+        it->ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(L"RayGenShader"));
         ++it;
     }
 
@@ -539,7 +586,11 @@ void App::CreateShaderTables()
         auto it = m_resourceManager->GetUploadIterator<HitGroupShaderRecord>(
             m_hitGroupShaderTable.get(), stride);
 
-        it->ShaderId = ShaderId(stateObjProps->GetShaderIdentifier(L"HitGroup"));
+        it->ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(L"HitGroup"));
+        it->IndexBuffer = m_geometries[0].Indices->GetGPUVirtualAddress();
+        it->UVBuffer = m_geometries[0].UVs->GetGPUVirtualAddress();
+        it->Texture = m_textureSrv;
+
         ++it;
     }
 
@@ -552,7 +603,7 @@ void App::CreateShaderTables()
         auto it = m_resourceManager->GetUploadIterator<MissShaderRecord>(m_missShaderTable.get(),
                                                                          stride);
 
-        it->ShaderId = ShaderId(stateObjProps->GetShaderIdentifier(L"MissShader"));
+        it->ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(L"MissShader"));
         ++it;
     }
 }
@@ -567,18 +618,12 @@ void App::Render()
     ID3D12DescriptorHeap* descriptorHeaps[] = {m_descriptorHeap.get(), m_samplerHeap.get()};
     m_cmdList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-    m_cmdList->SetComputeRootShaderResourceView(Shader::Scene, m_tlas->GetGPUVirtualAddress());
+    m_cmdList->SetComputeRootShaderResourceView(Global::Param::Scene,
+                                                m_tlas->GetGPUVirtualAddress());
 
-    m_cmdList->SetComputeRootDescriptorTable(Shader::Film, m_filmUav);
+    m_cmdList->SetComputeRootDescriptorTable(Global::Param::Film, m_filmUav);
 
-    m_cmdList->SetComputeRootShaderResourceView(Shader::IndexBuffer,
-                                                m_geometries[0].Indices->GetGPUVirtualAddress());
-    m_cmdList->SetComputeRootShaderResourceView(Shader::UVBuffer,
-                                                m_geometries[0].UVs->GetGPUVirtualAddress());
-
-    m_cmdList->SetComputeRootDescriptorTable(Shader::Texture, m_textureSrv);
-
-    m_cmdList->SetComputeRootDescriptorTable(Shader::Sampler, m_sampler);
+    m_cmdList->SetComputeRootDescriptorTable(Global::Param::Sampler, m_sampler);
 
     D3D12_DISPATCH_RAYS_DESC dispatchDesc{};
 
@@ -596,7 +641,7 @@ void App::Render()
     dispatchDesc.Height = m_windowHeight;
     dispatchDesc.Depth = 1;
 
-    m_cmdList->SetPipelineState1(m_pipelineState.get());
+    m_cmdList->SetPipelineState1(m_pipeline.get());
     m_cmdList->DispatchRays(&dispatchDesc);
 
     {
