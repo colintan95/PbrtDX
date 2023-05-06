@@ -8,6 +8,7 @@ set(PBRT_SCENES_DIR "D:/pbrt-v4-scenes")
 
 add_subdirectory(cmake)
 
+add_subdirectory(external/glm)
 add_subdirectory(external/rply)
 
 add_subdirectory(src)

@@ -1,6 +1,9 @@
 #include "App.h"
 
 #include <windows.h>
+#include <winrt/base.h>
+
+using winrt::check_bool;
 
 static LRESULT WindowProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam)
 {
@@ -25,9 +28,20 @@ int WinMain(HINSTANCE hinstance, HINSTANCE, LPSTR, int cmdShow)
     windowClass.lpszClassName = L"PbrtDX";
     RegisterClassEx(&windowClass);
 
+    RECT windowRect{};
+    windowRect.left = 0;
+    windowRect.top = 0;
+    windowRect.right = 1024;
+    windowRect.bottom = 576;
+
+    check_bool(AdjustWindowRect(&windowRect, WS_OVERLAPPEDWINDOW, false));
+
+    int windowWidth = windowRect.right - windowRect.left;
+    int windowHeight = windowRect.bottom - windowRect.top;
+
     HWND hwnd = CreateWindow(windowClass.lpszClassName, L"PbrtDX", WS_OVERLAPPEDWINDOW,
-                             CW_USEDEFAULT, CW_USEDEFAULT, 1024, 768, nullptr, nullptr, hinstance,
-                             nullptr);
+                             CW_USEDEFAULT, CW_USEDEFAULT, windowWidth, windowHeight, nullptr,
+                             nullptr, hinstance, nullptr);
     ShowWindow(hwnd, cmdShow);
 
     App app(hwnd);

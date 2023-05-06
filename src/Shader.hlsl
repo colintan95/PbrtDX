@@ -11,10 +11,15 @@ RWTexture2D<float4> g_film : register(u0);
 [shader("raygeneration")]
 void RayGenShader()
 {
+    float fov = 26.5f / 180.f * 3.142f;
+
+    float maxScreenY = tan(fov / 2.f);
+    float maxScreenX = maxScreenY * (1024.f / 576.f);
+
     float2 filmPosNormalized = (float2)DispatchRaysIndex() / (float2)DispatchRaysDimensions();
 
-    float filmPosX = lerp(-1.f, 1.f, filmPosNormalized.x);
-    float filmPosY = lerp(1.f, -1.f, filmPosNormalized.y);
+    float filmPosX = lerp(-maxScreenX, maxScreenX, filmPosNormalized.x);
+    float filmPosY = lerp(maxScreenY, -maxScreenY, filmPosNormalized.y);
 
     RayDesc ray;
     ray.Origin = float3(0.f, 2.1088f, 13.574f);

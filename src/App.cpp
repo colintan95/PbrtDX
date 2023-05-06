@@ -4,6 +4,7 @@
 #include "Mesh.h"
 
 #include <d3dx12.h>
+#include <glm/gtc/matrix_transform.hpp>
 
 #include <vector>
 
@@ -97,10 +98,6 @@ void App::CreateSwapChain()
     {
         check_hresult(m_swapChain->GetBuffer(i, IID_PPV_ARGS(&m_frames[i].SwapChainBuffer)));
     }
-
-    m_viewport = CD3DX12_VIEWPORT(0.f, 0.f, static_cast<float>(m_windowWidth),
-                                  static_cast<float>(m_windowHeight));
-    m_scissorRect = CD3DX12_RECT(0, 0, m_windowWidth, m_windowHeight);
 }
 
 void App::CreateCmdList()
@@ -219,9 +216,9 @@ void App::LoadMeshes()
         CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
         CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(dataSize);
 
-        check_hresult(m_device->CreateCommittedResource(
-            &heapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc, D3D12_RESOURCE_STATE_COMMON, nullptr,
-            IID_PPV_ARGS(m_posBuffer.put())));
+        check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                                                        &resourceDesc, D3D12_RESOURCE_STATE_COMMON,
+                                                        nullptr, IID_PPV_ARGS(m_posBuffer.put())));
 
         UploadToBuffer(m_posBuffer.get(), reinterpret_cast<const uint8_t*>(mesh.Positions.data()),
                        dataSize);
@@ -233,11 +230,36 @@ void App::LoadMeshes()
         CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
         CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(dataSize);
 
-        check_hresult(m_device->CreateCommittedResource(
-            &heapProps, D3D12_HEAP_FLAG_NONE, &resourceDesc, D3D12_RESOURCE_STATE_COMMON, nullptr,
-            IID_PPV_ARGS(m_indexBuffer.put())));
+        check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                                                        &resourceDesc, D3D12_RESOURCE_STATE_COMMON,
+                                                        nullptr,
+                                                        IID_PPV_ARGS(m_indexBuffer.put())));
 
         UploadToBuffer(m_indexBuffer.get(), reinterpret_cast<const uint8_t*>(mesh.Indices.data()),
+                       dataSize);
+    }
+
+    glm::mat4 transform =
+        glm::translate(glm::mat4(1.f), glm::vec3(0.f, 2.2f, 0.f)) *
+        glm::rotate(glm::mat4(1.f), 1.35f, glm::vec3(0.403f, -0.755f, -0.517f)) *
+        glm::scale(glm::mat4(1.f), glm::vec3(0.5f));
+
+    // Taking the transpose converts the matrix from column-major to row-major. glm uses
+    // column-major while the geometry desc requires row-major.
+    transform = glm::transpose(transform);
+
+    {
+        size_t dataSize = sizeof(float) * 3 * 4;
+
+        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
+        CD3DX12_RESOURCE_DESC resourceDesc = CD3DX12_RESOURCE_DESC::Buffer(dataSize);
+
+        check_hresult(m_device->CreateCommittedResource(&heapProps, D3D12_HEAP_FLAG_NONE,
+                                                        &resourceDesc, D3D12_RESOURCE_STATE_COMMON,
+                                                        nullptr,
+                                                        IID_PPV_ARGS(m_transformBuffer.put())));
+
+        UploadToBuffer(m_transformBuffer.get(), reinterpret_cast<const uint8_t*>(&transform),
                        dataSize);
     }
 }
@@ -256,7 +278,7 @@ void App::CreateAccelerationStructures()
     D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc{};
     geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
     geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
-    geometryDesc.Triangles.Transform3x4 = 0;
+    geometryDesc.Triangles.Transform3x4 = m_transformBuffer->GetGPUVirtualAddress();
     geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
     geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
     geometryDesc.Triangles.IndexCount = static_cast<uint32_t>(m_indexCount);

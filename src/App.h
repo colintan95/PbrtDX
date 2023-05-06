@@ -52,9 +52,6 @@ private:
 
     winrt::com_ptr<IDXGISwapChain3> m_swapChain;
 
-    D3D12_VIEWPORT m_viewport;
-    D3D12_RECT m_scissorRect;
-
     winrt::com_ptr<ID3D12CommandAllocator> m_cmdAllocator;
 
     winrt::com_ptr<ID3D12GraphicsCommandList4> m_cmdList;
@@ -85,6 +82,7 @@ private:
 
     winrt::com_ptr<ID3D12Resource> m_posBuffer;
     winrt::com_ptr<ID3D12Resource> m_indexBuffer;
+    winrt::com_ptr<ID3D12Resource> m_transformBuffer;
 
     winrt::com_ptr<ID3D12Resource> m_blas;
     winrt::com_ptr<ID3D12Resource> m_tlas;

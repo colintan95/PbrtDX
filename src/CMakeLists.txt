@@ -24,6 +24,7 @@ add_custom_command(
 target_compile_definitions(PbrtDX PRIVATE UNICODE NOMINMAX)
 target_compile_options(PbrtDX PRIVATE /W4 /WX /await)
 
+target_link_libraries(PbrtDX PRIVATE glm)
 target_link_libraries(PbrtDX PRIVATE RPly)
 
 target_include_directories(PbrtDX PRIVATE ${PROJECT_SOURCE_DIR}/external/d3dx12)
