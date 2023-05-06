@@ -41,6 +41,11 @@ public:
             return reinterpret_cast<T*>(m_basePtr + m_currentOffset);
         }
 
+        T& Get()
+        {
+            return *reinterpret_cast<T*>(m_basePtr + m_currentOffset);
+        }
+
         UploadIterator& operator++()
         {
             m_currentOffset += m_stride;

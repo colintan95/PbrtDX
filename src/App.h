@@ -16,6 +16,9 @@ public:
     void Render();
 
 private:
+    // Forward declaration.
+    struct Geometry;
+
     void CreateDevice();
 
     void CreateCmdQueue();
@@ -26,7 +29,10 @@ private:
 
     void CreatePipeline();
 
-    void LoadMeshData();
+    void LoadScene();
+
+    void LoadGeometry(std::filesystem::path path, std::filesystem::path texture,
+                      Geometry* geometry);
 
     void CreateAccelerationStructures();
 
@@ -146,9 +152,10 @@ private:
         uint32_t VertexCount = 0;
         uint32_t IndexCount = 0;
 
-        D3D12_GPU_VIRTUAL_ADDRESS TransformAddr;
+        D3D12_GPU_VIRTUAL_ADDRESS Transform;
 
         winrt::com_ptr<ID3D12Resource> Texture;
+        D3D12_GPU_DESCRIPTOR_HANDLE TextureSrv;
     };
 
     std::vector<Geometry> m_geometries;
@@ -161,13 +168,19 @@ private:
     winrt::com_ptr<ID3D12DescriptorHeap> m_descriptorHeap;
 
     D3D12_GPU_DESCRIPTOR_HANDLE m_filmUav;
-    D3D12_GPU_DESCRIPTOR_HANDLE m_textureSrv;
 
     winrt::com_ptr<ID3D12DescriptorHeap> m_samplerHeap;
 
     D3D12_GPU_DESCRIPTOR_HANDLE m_sampler;
 
-    winrt::com_ptr<ID3D12Resource> m_rayGenShaderTable;
-    winrt::com_ptr<ID3D12Resource> m_hitGroupShaderTable;
-    winrt::com_ptr<ID3D12Resource> m_missShaderTable;
+    struct ShaderTable
+    {
+        winrt::com_ptr<ID3D12Resource> Buffer;
+        size_t Size = 0;
+        size_t Stride = 0;
+    };
+
+    ShaderTable m_rayGenShaderTable;
+    ShaderTable m_hitGroupShaderTable;
+    ShaderTable m_missShaderTable;
 };

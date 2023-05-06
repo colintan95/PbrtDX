@@ -27,7 +27,7 @@ App::App(HWND hwnd) : m_hwnd(hwnd)
 
     CreatePipeline();
 
-    LoadMeshData();
+    LoadScene();
 
     CreateAccelerationStructures();
 
@@ -283,64 +283,78 @@ struct Mat3x4
 
 } // namespace
 
-void App::LoadMeshData()
+void App::LoadScene()
+{
+    m_geometries.resize(2);
+
+    LoadGeometry("scenes/pbrt-book/geometry/mesh_00002.ply",
+                 "scenes/pbrt-book/texture/book_pages.png", &m_geometries[0]);
+
+    LoadGeometry("scenes/pbrt-book/geometry/mesh_00003.ply",
+                 "scenes/pbrt-book/texture/book_pbrt.png", &m_geometries[1]);
+
+    glm::mat4 transforms[2] = {};
+
+    transforms[0] = glm::translate(glm::mat4(1.f), glm::vec3(0.f, 2.2f, 0.f)) *
+                    glm::rotate(glm::mat4(1.f), 1.35f, glm::vec3(0.403f, -0.755f, -0.517f)) *
+                    glm::scale(glm::mat4(1.f), glm::vec3(0.5f));
+
+    transforms[1] = glm::translate(glm::mat4(1.f), glm::vec3(0.f, 2.2f, 0.f)) *
+                    glm::rotate(glm::mat4(1.f), 1.35f, glm::vec3(0.403f, -0.755f, -0.517f)) *
+                    glm::scale(glm::mat4(1.f), glm::vec3(0.5f));
+
+    m_transformBuffer = m_resourceManager->CreateUploadBuffer(sizeof(Mat3x4) * m_geometries.size());
+
+    auto it = m_resourceManager->GetUploadIterator<Mat3x4>(m_transformBuffer.get());
+
+    for (size_t i = 0; i < m_geometries.size(); ++i)
+    {
+        glm::mat4 transform = glm::transpose(transforms[i]);
+
+        it->Rows[0] = transform[0];
+        it->Rows[1] = transform[1];
+        it->Rows[2] = transform[2];
+
+        m_geometries[i].Transform = it.GetGpuAddress();
+
+        ++it;
+    }
+}
+
+void App::LoadGeometry(std::filesystem::path path, std::filesystem::path texture,
+                       Geometry* geometry)
 {
     Mesh mesh{};
-
-    LoadMeshFromPlyFile("scenes/pbrt-book/geometry/mesh_00003.ply", &mesh);
-
-    Geometry geometry{};
+    LoadMeshFromPlyFile(path, &mesh);
 
     {
         auto data = std::as_bytes(std::span(mesh.Positions));
 
-        geometry.Positions = m_resourceManager->CreateBuffer(data.size());
+        geometry->Positions = m_resourceManager->CreateBuffer(data.size());
 
-        m_resourceManager->UploadToBuffer(geometry.Positions.get(), 0, data);
+        m_resourceManager->UploadToBuffer(geometry->Positions.get(), 0, data);
     }
 
     {
         auto data = std::as_bytes(std::span(mesh.UVs));
 
-        geometry.UVs = m_resourceManager->CreateBuffer(data.size());
+        geometry->UVs = m_resourceManager->CreateBuffer(data.size());
 
-        m_resourceManager->UploadToBuffer(geometry.UVs.get(), 0, data);
+        m_resourceManager->UploadToBuffer(geometry->UVs.get(), 0, data);
     }
 
     {
         auto data = std::as_bytes(std::span(mesh.Indices));
 
-        geometry.Indices = m_resourceManager->CreateBuffer(data.size());
+        geometry->Indices = m_resourceManager->CreateBuffer(data.size());
 
-        m_resourceManager->UploadToBuffer(geometry.Indices.get(), 0, data);
+        m_resourceManager->UploadToBuffer(geometry->Indices.get(), 0, data);
     }
 
-    geometry.VertexCount = static_cast<uint32_t>(mesh.Positions.size());
-    geometry.IndexCount = static_cast<uint32_t>(mesh.Indices.size());
+    geometry->VertexCount = static_cast<uint32_t>(mesh.Positions.size());
+    geometry->IndexCount = static_cast<uint32_t>(mesh.Indices.size());
 
-    glm::mat4 transform =
-        glm::translate(glm::mat4(1.f), glm::vec3(0.f, 2.2f, 0.f)) *
-        glm::rotate(glm::mat4(1.f), 1.35f, glm::vec3(0.403f, -0.755f, -0.517f)) *
-        glm::scale(glm::mat4(1.f), glm::vec3(0.5f));
-
-    transform = glm::transpose(transform);
-
-    {
-        m_transformBuffer = m_resourceManager->CreateUploadBuffer(sizeof(Mat3x4));
-
-        auto it = m_resourceManager->GetUploadIterator<Mat3x4>(m_transformBuffer.get());
-        it->Rows[0] = transform[0];
-        it->Rows[1] = transform[1];
-        it->Rows[2] = transform[2];
-
-        geometry.TransformAddr = it.GetGpuAddress();
-
-        ++it;
-    }
-
-    geometry.Texture = m_resourceManager->LoadImage("scenes/pbrt-book/texture/book_pbrt.png");
-
-    m_geometries.push_back(geometry);
+    geometry->Texture = m_resourceManager->LoadImage(texture);
 }
 
 void App::CreateAccelerationStructures()
@@ -354,25 +368,31 @@ void App::CreateAccelerationStructures()
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO tlasPrebuildInfo{};
     m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&tlasInputs, &tlasPrebuildInfo);
 
-    D3D12_RAYTRACING_GEOMETRY_DESC geometryDesc{};
-    geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
-    geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
-    geometryDesc.Triangles.Transform3x4 = m_geometries[0].TransformAddr;
-    geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
-    geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
-    geometryDesc.Triangles.IndexCount = m_geometries[0].IndexCount;
-    geometryDesc.Triangles.VertexCount = m_geometries[0].VertexCount;
-    geometryDesc.Triangles.IndexBuffer = m_geometries[0].Indices->GetGPUVirtualAddress();
-    geometryDesc.Triangles.VertexBuffer.StartAddress =
-        m_geometries[0].Positions->GetGPUVirtualAddress();
-    geometryDesc.Triangles.VertexBuffer.StrideInBytes = sizeof(float) * 3;
+    std::vector<D3D12_RAYTRACING_GEOMETRY_DESC> geometryDescs;
+    geometryDescs.reserve(m_geometries.size());
+
+    for (const auto& geom : m_geometries)
+    {
+        auto& geometryDesc = geometryDescs.emplace_back();
+
+        geometryDesc.Type = D3D12_RAYTRACING_GEOMETRY_TYPE_TRIANGLES;
+        geometryDesc.Flags = D3D12_RAYTRACING_GEOMETRY_FLAG_OPAQUE;
+        geometryDesc.Triangles.Transform3x4 = geom.Transform;
+        geometryDesc.Triangles.IndexFormat = DXGI_FORMAT_R32_UINT;
+        geometryDesc.Triangles.VertexFormat = DXGI_FORMAT_R32G32B32_FLOAT;
+        geometryDesc.Triangles.IndexCount = geom.IndexCount;
+        geometryDesc.Triangles.VertexCount = geom.VertexCount;
+        geometryDesc.Triangles.IndexBuffer = geom.Indices->GetGPUVirtualAddress();
+        geometryDesc.Triangles.VertexBuffer.StartAddress = geom.Positions->GetGPUVirtualAddress();
+        geometryDesc.Triangles.VertexBuffer.StrideInBytes = sizeof(float) * 3;
+    }
 
     D3D12_BUILD_RAYTRACING_ACCELERATION_STRUCTURE_INPUTS blasInputs{};
     blasInputs.Type = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL;
     blasInputs.Flags = D3D12_RAYTRACING_ACCELERATION_STRUCTURE_BUILD_FLAG_PREFER_FAST_TRACE;
-    blasInputs.NumDescs = 1;
+    blasInputs.NumDescs = static_cast<uint32_t>(geometryDescs.size());
     blasInputs.DescsLayout = D3D12_ELEMENTS_LAYOUT_ARRAY;
-    blasInputs.pGeometryDescs = &geometryDesc;
+    blasInputs.pGeometryDescs = geometryDescs.data();
 
     D3D12_RAYTRACING_ACCELERATION_STRUCTURE_PREBUILD_INFO blasPrebuildInfo{};
     m_dxrDevice->GetRaytracingAccelerationStructurePrebuildInfo(&blasInputs, &blasPrebuildInfo);
@@ -459,7 +479,7 @@ void App::CreateDescriptors()
 {
     {
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
-        heapDesc.NumDescriptors = 2;
+        heapDesc.NumDescriptors = static_cast<uint32_t>(1 + m_geometries.size());
         heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
@@ -482,15 +502,21 @@ void App::CreateDescriptors()
     cpuHandle.ptr += descriptorSize;
     gpuHandle.ptr += descriptorSize;
 
-    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-    srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
-    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
-    srvDesc.Texture2D.MostDetailedMip = 0;
-    srvDesc.Texture2D.MipLevels = 1;
+    for (auto& geom : m_geometries)
+    {
+        D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+        srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+        srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+        srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+        srvDesc.Texture2D.MostDetailedMip = 0;
+        srvDesc.Texture2D.MipLevels = 1;
 
-    m_device->CreateShaderResourceView(m_geometries[0].Texture.get(), &srvDesc, cpuHandle);
-    m_textureSrv = gpuHandle;
+        m_device->CreateShaderResourceView(geom.Texture.get(), &srvDesc, cpuHandle);
+        geom.TextureSrv = gpuHandle;
+
+        cpuHandle.ptr += descriptorSize;
+        gpuHandle.ptr += descriptorSize;
+    }
 
     {
         D3D12_DESCRIPTOR_HEAP_DESC heapDesc{};
@@ -549,7 +575,7 @@ struct HitGroupShaderRecord
     ShaderId ShaderId;
     D3D12_GPU_VIRTUAL_ADDRESS IndexBuffer;
     D3D12_GPU_VIRTUAL_ADDRESS UVBuffer;
-    D3D12_GPU_DESCRIPTOR_HANDLE Texture;
+    D3D12_GPU_DESCRIPTOR_HANDLE TextureSrv;
 };
 
 struct MissShaderRecord
@@ -565,43 +591,51 @@ void App::CreateShaderTables()
     m_pipeline.as(pipelineProps);
 
     {
-        size_t stride = Align(sizeof(RayGenShaderRecord),
-                              D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
-
-        m_rayGenShaderTable = m_resourceManager->CreateUploadBuffer(stride);
+        m_rayGenShaderTable.Stride = Align(sizeof(RayGenShaderRecord),
+                                           D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
+        m_rayGenShaderTable.Size = m_rayGenShaderTable.Stride;
+        m_rayGenShaderTable.Buffer =
+            m_resourceManager->CreateUploadBuffer(m_rayGenShaderTable.Size);
 
         auto it = m_resourceManager->GetUploadIterator<RayGenShaderRecord>(
-            m_rayGenShaderTable.get(), stride);
+            m_rayGenShaderTable.Buffer.get(), m_rayGenShaderTable.Stride);
 
         it->ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(L"RayGenShader"));
         ++it;
     }
 
     {
-        size_t stride = Align(sizeof(HitGroupShaderRecord),
-                              D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
-
-        m_hitGroupShaderTable = m_resourceManager->CreateUploadBuffer(stride);
+        m_hitGroupShaderTable.Stride = Align(sizeof(HitGroupShaderRecord),
+                                             D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
+        m_hitGroupShaderTable.Size = m_hitGroupShaderTable.Stride * m_geometries.size();
+        m_hitGroupShaderTable.Buffer =
+             m_resourceManager->CreateUploadBuffer(m_hitGroupShaderTable.Size);
 
         auto it = m_resourceManager->GetUploadIterator<HitGroupShaderRecord>(
-            m_hitGroupShaderTable.get(), stride);
+            m_hitGroupShaderTable.Buffer.get(), m_hitGroupShaderTable.Stride);
 
-        it->ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(L"HitGroup"));
-        it->IndexBuffer = m_geometries[0].Indices->GetGPUVirtualAddress();
-        it->UVBuffer = m_geometries[0].UVs->GetGPUVirtualAddress();
-        it->Texture = m_textureSrv;
+        for (const auto& geom : m_geometries)
+        {
+            auto& record = it.Get();
 
-        ++it;
+            record.ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(L"HitGroup"));
+            record.IndexBuffer = geom.Indices->GetGPUVirtualAddress();
+            record.UVBuffer = geom.UVs->GetGPUVirtualAddress();
+            record.TextureSrv = geom.TextureSrv;
+
+            ++it;
+        }
     }
 
     {
-        size_t stride = Align(sizeof(MissShaderRecord),
-                              D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
+        m_missShaderTable.Stride = Align(sizeof(MissShaderRecord),
+                                         D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
+        m_missShaderTable.Size = m_missShaderTable.Stride;
+        m_missShaderTable.Buffer =
+            m_resourceManager->CreateUploadBuffer(m_missShaderTable.Stride);
 
-        m_missShaderTable = m_resourceManager->CreateUploadBuffer(stride);
-
-        auto it = m_resourceManager->GetUploadIterator<MissShaderRecord>(m_missShaderTable.get(),
-                                                                         stride);
+        auto it = m_resourceManager->GetUploadIterator<MissShaderRecord>(
+            m_missShaderTable.Buffer.get(), m_missShaderTable.Stride);
 
         it->ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(L"MissShader"));
         ++it;
@@ -628,14 +662,16 @@ void App::Render()
     D3D12_DISPATCH_RAYS_DESC dispatchDesc{};
 
     dispatchDesc.RayGenerationShaderRecord.StartAddress =
-        m_rayGenShaderTable->GetGPUVirtualAddress();
-    dispatchDesc.RayGenerationShaderRecord.SizeInBytes = m_rayGenShaderTable->GetDesc().Width;
+        m_rayGenShaderTable.Buffer->GetGPUVirtualAddress();
+    dispatchDesc.RayGenerationShaderRecord.SizeInBytes = m_rayGenShaderTable.Size;
 
-    dispatchDesc.HitGroupTable.StartAddress = m_hitGroupShaderTable->GetGPUVirtualAddress();
-    dispatchDesc.HitGroupTable.SizeInBytes = m_hitGroupShaderTable->GetDesc().Width;
+    dispatchDesc.HitGroupTable.StartAddress = m_hitGroupShaderTable.Buffer->GetGPUVirtualAddress();
+    dispatchDesc.HitGroupTable.SizeInBytes = m_hitGroupShaderTable.Size;
+    dispatchDesc.HitGroupTable.StrideInBytes = m_hitGroupShaderTable.Stride;
 
-    dispatchDesc.MissShaderTable.StartAddress = m_missShaderTable->GetGPUVirtualAddress();
-    dispatchDesc.MissShaderTable.SizeInBytes = m_missShaderTable->GetDesc().Width;
+    dispatchDesc.MissShaderTable.StartAddress = m_missShaderTable.Buffer->GetGPUVirtualAddress();
+    dispatchDesc.MissShaderTable.SizeInBytes = m_missShaderTable.Size;
+    dispatchDesc.MissShaderTable.StrideInBytes = m_missShaderTable.Stride;
 
     dispatchDesc.Width = m_windowWidth;
     dispatchDesc.Height = m_windowHeight;

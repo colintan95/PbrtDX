@@ -75,8 +75,6 @@ com_ptr<ID3D12Resource> ResourceManager::LoadImage(std::filesystem::path path)
     WICPixelFormatGUID srcFormat;
     check_hresult(decoderFrame->GetPixelFormat(&srcFormat));
 
-    assert(srcFormat == GUID_WICPixelFormat24bppBGR || srcFormat == GUID_WICPixelFormat32bppBGRA);
-
     com_ptr<IWICFormatConverter> formatConverter;
     check_hresult(m_wicFactory->CreateFormatConverter(formatConverter.put()));
 
