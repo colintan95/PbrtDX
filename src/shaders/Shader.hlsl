@@ -16,6 +16,72 @@ SamplerState g_sampler : register(s0);
 
 StructuredBuffer<SphereLight> g_lights : register(t1);
 
+StructuredBuffer<HaltonEntry> g_haltonEntries : register(t2);
+ByteAddressBuffer g_haltonPermutations : register(t3);
+
+static const float ONE_MINUS_EPSILON = 0x1.fffffep-1;
+
+float RadicalInverse(int baseIdx, uint64_t a)
+{
+    uint base = g_haltonEntries[baseIdx].Prime;
+
+    float invBase = 1.f / (float)base;
+    float invBaseM = 1.f;
+
+    uint64_t reversedDigits = 0;
+
+    while (a)
+    {
+        uint64_t next = a / base;
+        uint64_t digit = a - next * base;
+
+        reversedDigits = reversedDigits * base + digit;
+        invBaseM *= invBase;
+        a = next;
+    }
+
+    return min((float)(reversedDigits) * invBaseM, ONE_MINUS_EPSILON);
+}
+
+float ScrambledRadicalInverse(int baseIdx, uint64_t a)
+{
+    uint base = g_haltonEntries[baseIdx].Prime;
+
+    float invBase = 1.f / (float)base;
+    float invBaseM = 1.f;
+
+    uint64_t reversedDigits = 0;
+
+    while (a)
+    {
+        uint64_t next = a / base;
+        uint64_t digit = a - next * base;
+
+        int permOffset = g_haltonEntries[baseIdx].PermutationOffset;
+
+        reversedDigits = reversedDigits * base +
+            g_haltonPermutations.Load<uint16_t>(permOffset + (int)digit);
+        invBaseM *= invBase;
+        a = next;
+    }
+
+    return min((float)(reversedDigits) * invBaseM, ONE_MINUS_EPSILON);
+}
+
+uint64_t InverseRadicalInverse(uint64_t inverse, int base, int numDigits)
+{
+    uint64_t idx = 0;
+
+    for (int i = 0; i < numDigits; ++i)
+    {
+        uint64_t digit = inverse % base;
+        inverse /= base;
+        idx = idx * base + digit;
+    }
+
+    return idx;
+}
+
 [shader("raygeneration")]
 void RayGenShader()
 {
@@ -23,6 +89,43 @@ void RayGenShader()
 
     float maxScreenY = tan(fov / 2.f);
     float maxScreenX = maxScreenY * (1024.f / 576.f);
+
+    // TODO: Calculate these properly.
+    const int baseScale0 = 128;
+    const int baseScale1 = 243;
+    const int baseExp0 = 7;
+    const int baseExp1 = 5;
+    const int multInv0 = 59;
+    const int multInv1 = 131;
+    const int sampleStride = baseScale0 * baseScale1;
+
+    const int MAX_HALTON_RESOLUTION = 128;
+
+    int pixelX = DispatchRaysIndex().x;
+    int pixelY = DispatchRaysIndex().y;
+
+    uint64_t haltonIdx = 0;
+
+    uint64_t dimOffset = InverseRadicalInverse(pixelX % MAX_HALTON_RESOLUTION, 2, baseExp0);
+    haltonIdx += dimOffset * (sampleStride / baseScale0) * multInv0;
+
+    dimOffset = InverseRadicalInverse(pixelY % MAX_HALTON_RESOLUTION, 3, baseExp1);
+    haltonIdx += dimOffset * (sampleStride / baseScale1) * multInv1;
+
+    haltonIdx %= sampleStride;
+
+    float2 filmSample = {RadicalInverse(0, haltonIdx >> baseExp0),
+                         RadicalInverse(1, haltonIdx / baseScale1)};
+
+    int samplerDim = 2;
+
+    float2 lightSample0 = {ScrambledRadicalInverse(samplerDim, haltonIdx),
+                           ScrambledRadicalInverse(samplerDim + 1, haltonIdx)};
+    samplerDim += 2;
+
+    float2 lightSample1 = {ScrambledRadicalInverse(samplerDim, haltonIdx),
+                           ScrambledRadicalInverse(samplerDim + 1, haltonIdx)};
+    samplerDim += 2;
 
     float2 filmPosNormalized = (float2)DispatchRaysIndex() / (float2)DispatchRaysDimensions();
 

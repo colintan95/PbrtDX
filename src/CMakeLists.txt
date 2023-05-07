@@ -9,7 +9,7 @@ add_executable(PbrtDX WIN32
     ResourceManager.cpp
     ResourceManager.h)
 
-set(COMMON_SHADER_FLAGS -Zi -Od -Qembed_debug)
+set(COMMON_SHADER_FLAGS -Zi -Od -Qembed_debug -enable-16bit-types)
 
 compile_shader(
     OUTPUT gen/shaders/Shader.h

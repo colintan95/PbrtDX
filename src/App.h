@@ -116,6 +116,8 @@ private:
     winrt::com_ptr<ID3D12Resource> m_tlas;
 
     winrt::com_ptr<ID3D12Resource> m_film;
+    winrt::com_ptr<ID3D12Resource> m_haltonEntries;
+    winrt::com_ptr<ID3D12Resource> m_haltonPerms;
 
     std::unique_ptr<DescriptorHeap> m_descriptorHeap;
 
@@ -156,6 +158,8 @@ private:
                 Film,
                 Sampler,
                 Lights,
+                HaltonEntries,
+                HaltonPerms,
                 NUM_PARAMS
             };
         };

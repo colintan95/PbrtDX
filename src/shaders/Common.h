@@ -12,4 +12,10 @@ struct SphereLight
     float3 L;
 };
 
+struct HaltonEntry
+{
+    uint32_t PermutationOffset;
+    uint16_t Prime;
+};
+
 #endif // SHADERS_COMMON_H

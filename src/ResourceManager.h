@@ -28,6 +28,17 @@ public:
                         size_t srcSize);
 
     template<typename T>
+    winrt::com_ptr<ID3D12Resource> CreateBufferAndUpload(std::span<T> data)
+    {
+        auto dataInBytes = std::as_bytes(data);
+
+        winrt::com_ptr<ID3D12Resource> resource = CreateBuffer(dataInBytes.size());
+        UploadToBuffer(resource.get(), 0, dataInBytes);
+
+        return resource;
+    }
+
+    template<typename T>
     class UploadIterator
     {
     public:
