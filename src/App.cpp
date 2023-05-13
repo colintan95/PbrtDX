@@ -5,6 +5,7 @@
 
 #include <d3dx12.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/matrix_inverse.hpp>
 
 #include <algorithm>
 #include <chrono>
@@ -59,11 +60,11 @@ App::App(HWND hwnd) : m_hwnd(hwnd)
 
 void App::CreateDevice()
 {
-    com_ptr<ID3D12Debug1> debugController;
-    check_hresult(D3D12GetDebugInterface(IID_PPV_ARGS(debugController.put())));
+    // com_ptr<ID3D12Debug1> debugController;
+    // check_hresult(D3D12GetDebugInterface(IID_PPV_ARGS(debugController.put())));
 
-    debugController->EnableDebugLayer();
-    debugController->SetEnableGPUBasedValidation(true);
+    // debugController->EnableDebugLayer();
+    // debugController->SetEnableGPUBasedValidation(true);
 
     check_hresult(CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(m_factory.put())));
 
@@ -393,18 +394,21 @@ void App::LoadScene()
 
     {
         m_hitGroupGeomConstantsBuffer =
-            m_resourceManager->CreateUploadBuffer(sizeof(HitGroupGeometryConstants) * 2);
+            m_resourceManager->CreateUploadBuffer(sizeof(HitGroupGeometryConstants) * 3);
 
         auto it = m_resourceManager->GetUploadIterator<HitGroupGeometryConstants>(
             m_hitGroupGeomConstantsBuffer.get());
 
-        it->IsTextured = true;
+        it->IsTextured = 1;
+        it->NormalMatrix = glm::mat4(glm::inverseTranspose(glm::mat3(transforms[0])));
         ++it;
 
-        it->IsTextured = true;
+        it->IsTextured = 1;
+        it->NormalMatrix = glm::mat4(glm::inverseTranspose(glm::mat3(transforms[1])));
         ++it;
 
-        it->IsTextured = false;
+        it->IsTextured = 0;
+        it->NormalMatrix = glm::mat4(glm::inverseTranspose(glm::mat3(transforms[2])));
         ++it;
     }
 

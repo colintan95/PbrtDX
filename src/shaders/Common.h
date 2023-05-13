@@ -25,7 +25,10 @@ struct HitGroupShaderConstants
 
 struct HitGroupGeometryConstants
 {
+    float4x4 NormalMatrix;
     uint32_t IsTextured;
+
+    float Unused[3];
 };
 
 #endif // SHADERS_COMMON_H
