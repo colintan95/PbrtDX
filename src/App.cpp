@@ -166,6 +166,11 @@ void App::CreatePipeline()
         params[Global::Param::Film].DescriptorTable.pDescriptorRanges =
             &ranges[Global::Range::Film];
 
+        params[Global::Param::DrawConstants].ParameterType =
+            D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS;
+        params[Global::Param::DrawConstants].Constants.ShaderRegister = 0;
+        params[Global::Param::DrawConstants].Constants.Num32BitValues = 1;
+
         params[Global::Param::Sampler].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         params[Global::Param::Sampler].DescriptorTable.NumDescriptorRanges = 1;
         params[Global::Param::Sampler].DescriptorTable.pDescriptorRanges =
@@ -962,6 +967,9 @@ void App::Render()
                                                 m_tlas->GetGPUVirtualAddress());
 
     m_cmdList->SetComputeRootDescriptorTable(Global::Param::Film, m_filmUav);
+
+    m_cmdList->SetComputeRoot32BitConstant(Global::Param::DrawConstants, m_sampleIdx, 0);
+    ++m_sampleIdx;
 
     m_cmdList->SetComputeRootDescriptorTable(Global::Param::Sampler, m_sampler);
 

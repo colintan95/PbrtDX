@@ -88,6 +88,8 @@ private:
 
     winrt::com_ptr<ID3D12StateObject> m_pipeline;
 
+    uint32_t m_sampleIdx = 1;
+
     struct Geometry
     {
         winrt::com_ptr<ID3D12Resource> Positions;
@@ -163,6 +165,7 @@ private:
             {
                 Scene = 0,
                 Film,
+                DrawConstants,
                 Sampler,
                 Lights,
                 HaltonEntries,

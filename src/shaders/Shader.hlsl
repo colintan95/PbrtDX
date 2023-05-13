@@ -14,9 +14,16 @@ struct VisibilityPayload {
 
 // Global descriptors.
 
+struct DrawConstants
+{
+    uint32_t SampleIndex;
+};
+
 RaytracingAccelerationStructure g_scene : register(t0);
 
 RWTexture2D<float4> g_film : register(u0);
+
+ConstantBuffer<DrawConstants> g_drawConstants : register(b0);
 
 SamplerState g_sampler : register(s0);
 
@@ -107,18 +114,20 @@ void RayGenShader()
 
     const int MAX_HALTON_RESOLUTION = 128;
 
-    int pixelX = DispatchRaysIndex().x;
-    int pixelY = DispatchRaysIndex().y;
+    uint2 pixel = DispatchRaysIndex().xy;
+    uint sampleIdx = g_drawConstants.SampleIndex;
 
     uint64_t haltonIdx = 0;
 
-    uint64_t dimOffset = InverseRadicalInverse(pixelX % MAX_HALTON_RESOLUTION, 2, baseExp0);
+    uint64_t dimOffset = InverseRadicalInverse(pixel.x % MAX_HALTON_RESOLUTION, 2, baseExp0);
     haltonIdx += dimOffset * (sampleStride / baseScale0) * multInv0;
 
-    dimOffset = InverseRadicalInverse(pixelY % MAX_HALTON_RESOLUTION, 3, baseExp1);
+    dimOffset = InverseRadicalInverse(pixel.y % MAX_HALTON_RESOLUTION, 3, baseExp1);
     haltonIdx += dimOffset * (sampleStride / baseScale1) * multInv1;
 
     haltonIdx %= sampleStride;
+
+    haltonIdx += sampleIdx * sampleStride;
 
     float2 filmSample = {RadicalInverse(0, haltonIdx >> baseExp0),
                          RadicalInverse(1, haltonIdx / baseScale1)};
@@ -149,7 +158,12 @@ void RayGenShader()
 
     TraceRay(g_scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
 
-    g_film[DispatchRaysIndex().xy] = payload.Color;
+    float3 prevFilmVal = g_film[pixel].rgb;
+
+    float N = (float)(sampleIdx + 1);
+
+    g_film[pixel].rgb = ((N - 1.f) / N) * prevFilmVal + (1.f / N) * payload.Color.rgb;
+    g_film[pixel].a = 1.f;
 }
 
 static const float PI = 3.14159265358979323846f;
