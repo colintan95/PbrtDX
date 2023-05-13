@@ -203,41 +203,45 @@ void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)
 
     float3 hitPos = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
 
-    SphereLight light = g_lights[0];
-
-    float dc = distance(hitPos, light.Position);
-
-    float3 wc = normalize(light.Position - hitPos);
-    float3 wcX, wcY;
-    CoordinateSystem(wc, wcX, wcY);
-
-    float sinThetaMax = light.Radius / dc;
-    float invSinThetaMax = 1.f / sinThetaMax;
-
-    float cosThetaMax = sqrt(max(0.f, 1 - sinThetaMax * sinThetaMax));
-
-    float cosTheta = (cosThetaMax - 1.f) * payload.LightSample0.x + 1.f;
-    float sinThetaSq = 1 - cosTheta * cosTheta;
-
-    float cosAlpha = sinThetaSq * invSinThetaMax +
-        cosTheta * sqrt(max(0.f, 1.f - sinThetaSq * invSinThetaMax * invSinThetaMax));
-    float sinAlpha = sqrt(max(0.f, 1.f - cosAlpha * cosAlpha));
-    float phi = payload.LightSample0.y * 2.f * PI;
-
-    float3 dir = SphericalDirection(sinAlpha, cosAlpha, phi, -wcX, -wcY, -wc);
-
-    float3 lightSamplePos = light.Position + light.Radius * dir;
-
-    float3 wi = normalize(lightSamplePos - hitPos);
-
-    float3 Li = light.L;
-    float pdf = 1.f / (2.f * PI * (1.f - cosThetaMax));
+    float3 L = float3(0.f, 0.f, 0.f);
 
     // TODO: Use the right brdf.
     float3 f = float3(1.f, 1.f, 1.f) / PI;
 
-    float3 L = float3(0.f, 0.f, 0.f);
-    L += f * Li * abs(dot(wi, normal)) / pdf;
+    for (int i = 0; i < 2; ++i)
+    {
+        SphereLight light = g_lights[i];
+
+        float dc = distance(hitPos, light.Position);
+
+        float3 wc = normalize(light.Position - hitPos);
+        float3 wcX, wcY;
+        CoordinateSystem(wc, wcX, wcY);
+
+        float sinThetaMax = light.Radius / dc;
+        float invSinThetaMax = 1.f / sinThetaMax;
+
+        float cosThetaMax = sqrt(max(0.f, 1 - sinThetaMax * sinThetaMax));
+
+        float cosTheta = (cosThetaMax - 1.f) * payload.LightSample0.x + 1.f;
+        float sinThetaSq = 1 - cosTheta * cosTheta;
+
+        float cosAlpha = sinThetaSq * invSinThetaMax +
+            cosTheta * sqrt(max(0.f, 1.f - sinThetaSq * invSinThetaMax * invSinThetaMax));
+        float sinAlpha = sqrt(max(0.f, 1.f - cosAlpha * cosAlpha));
+        float phi = payload.LightSample0.y * 2.f * PI;
+
+        float3 dir = SphericalDirection(sinAlpha, cosAlpha, phi, -wcX, -wcY, -wc);
+
+        float3 lightSamplePos = light.Position + light.Radius * dir;
+
+        float3 wi = normalize(lightSamplePos - hitPos);
+
+        float3 Li = light.L;
+        float pdf = 1.f / (2.f * PI * (1.f - cosThetaMax));
+
+        L += f * Li * abs(dot(wi, normal)) / pdf;
+    }
 
     payload.Color = float4(g_texture.SampleLevel(g_sampler, uv, 0).rgb * L, 1.f);
 }
