@@ -195,18 +195,22 @@ void App::CreatePipeline()
         D3D12_DESCRIPTOR_RANGE1 range{};
         range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
         range.NumDescriptors = 1;
-        range.BaseShaderRegister = 2;
+        range.BaseShaderRegister = 3;
         range.RegisterSpace = 1;
 
         D3D12_ROOT_PARAMETER1 params[HitGroup::Param::NUM_PARAMS] = {};
 
-        params[HitGroup::Param::IndexBuffer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-        params[HitGroup::Param::IndexBuffer].Descriptor.ShaderRegister = 0;
-        params[HitGroup::Param::IndexBuffer].Descriptor.RegisterSpace = 1;
+        params[HitGroup::Param::Indices].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[HitGroup::Param::Indices].Descriptor.ShaderRegister = 0;
+        params[HitGroup::Param::Indices].Descriptor.RegisterSpace = 1;
 
-        params[HitGroup::Param::UVBuffer].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
-        params[HitGroup::Param::UVBuffer].Descriptor.ShaderRegister = 1;
-        params[HitGroup::Param::UVBuffer].Descriptor.RegisterSpace = 1;
+        params[HitGroup::Param::Normals].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[HitGroup::Param::Normals].Descriptor.ShaderRegister = 1;
+        params[HitGroup::Param::Normals].Descriptor.RegisterSpace = 1;
+
+        params[HitGroup::Param::UVs].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[HitGroup::Param::UVs].Descriptor.ShaderRegister = 2;
+        params[HitGroup::Param::UVs].Descriptor.RegisterSpace = 1;
 
         params[HitGroup::Param::Texture].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         params[HitGroup::Param::Texture].DescriptorTable.NumDescriptorRanges = 1;
@@ -286,7 +290,7 @@ void App::CreatePipeline()
     subObjs[SubObj::LightHitGroup].pDesc = &lightHitGroupDesc;
 
     D3D12_RAYTRACING_SHADER_CONFIG shaderConfig{};
-    shaderConfig.MaxPayloadSizeInBytes = sizeof(float) * 4;
+    shaderConfig.MaxPayloadSizeInBytes = sizeof(float) * 8;
     shaderConfig.MaxAttributeSizeInBytes = sizeof(float) * 2;
 
     subObjs[SubObj::ShaderConfig].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
@@ -788,8 +792,9 @@ struct RayGenShaderRecord
 struct GeomHitGroupShaderRecord
 {
     ShaderId ShaderId;
-    D3D12_GPU_VIRTUAL_ADDRESS IndexBuffer;
-    D3D12_GPU_VIRTUAL_ADDRESS UVBuffer;
+    D3D12_GPU_VIRTUAL_ADDRESS Indices;
+    D3D12_GPU_VIRTUAL_ADDRESS Normals;
+    D3D12_GPU_VIRTUAL_ADDRESS UVs;
     D3D12_GPU_DESCRIPTOR_HANDLE TextureSrv;
 };
 
@@ -843,8 +848,9 @@ void App::CreateShaderTables()
         for (const auto& geom : m_geometries)
         {
             it->Geometry.ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kHitGroupName));
-            it->Geometry.IndexBuffer = geom.Indices->GetGPUVirtualAddress();
-            it->Geometry.UVBuffer = geom.UVs->GetGPUVirtualAddress();
+            it->Geometry.Indices = geom.Indices->GetGPUVirtualAddress();
+            it->Geometry.Normals = geom.Normals->GetGPUVirtualAddress();
+            it->Geometry.UVs = geom.UVs->GetGPUVirtualAddress();
             it->Geometry.TextureSrv = geom.TextureSrv;
             ++it;
         }

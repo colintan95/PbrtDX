@@ -169,8 +169,9 @@ private:
     {
         enum Param
         {
-            IndexBuffer = 0,
-            UVBuffer,
+            Indices = 0,
+            Normals,
+            UVs,
             Texture,
             NUM_PARAMS
         };
