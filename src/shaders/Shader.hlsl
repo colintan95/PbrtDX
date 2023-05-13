@@ -2,8 +2,7 @@
 
 struct RayPayload {
     float4 Color;
-    float2 LightSample0;
-    float2 LightSample1;
+    float2 LightSamples[2];
 };
 
 typedef BuiltInTriangleIntersectionAttributes IntersectAttributes;
@@ -129,30 +128,33 @@ void RayGenShader()
 
     haltonIdx += sampleIdx * sampleStride;
 
-    float2 filmSample = {RadicalInverse(0, haltonIdx >> baseExp0),
-                         RadicalInverse(1, haltonIdx / baseScale1)};
+    float2 filmOffset = float2(RadicalInverse(0, haltonIdx >> baseExp0),
+                               RadicalInverse(1, haltonIdx / baseScale1));
 
     int samplerDim = 2;
 
     RayPayload payload;
     payload.Color = float4(0.f, 0.f, 0.f, 0.f);
 
-    payload.LightSample0 = float2(ScrambledRadicalInverse(samplerDim, haltonIdx),
-                                  ScrambledRadicalInverse(samplerDim + 1, haltonIdx));
+    payload.LightSamples[0] = float2(ScrambledRadicalInverse(samplerDim, haltonIdx),
+                                     ScrambledRadicalInverse(samplerDim + 1, haltonIdx));
     samplerDim += 2;
 
-    payload.LightSample1 = float2(ScrambledRadicalInverse(samplerDim, haltonIdx),
-                                  ScrambledRadicalInverse(samplerDim + 1, haltonIdx));
+    payload.LightSamples[1] = float2(ScrambledRadicalInverse(samplerDim, haltonIdx),
+                                     ScrambledRadicalInverse(samplerDim + 1, haltonIdx));
     samplerDim += 2;
 
-    float2 filmPosNormalized = (float2)DispatchRaysIndex() / (float2)DispatchRaysDimensions();
+    float2 filmPos = (float2)pixel + filmOffset;
 
-    float filmPosX = lerp(-maxScreenX, maxScreenX, filmPosNormalized.x);
-    float filmPosY = lerp(maxScreenY, -maxScreenY, filmPosNormalized.y);
+    float3 rayDir =
+        normalize(float3(
+            lerp(-maxScreenX, maxScreenX, filmPos.x / (float)DispatchRaysDimensions().x),
+            lerp(maxScreenY, -maxScreenY, filmPos.y / (float)DispatchRaysDimensions().y),
+            -1.f));
 
     RayDesc ray;
     ray.Origin = float3(0.f, 2.1088f, 13.574f);
-    ray.Direction = normalize(float3(filmPosX, filmPosY, -1.f));
+    ray.Direction = rayDir;
     ray.TMin = 0.1f;
     ray.TMax = 1000.f;
 
@@ -291,7 +293,7 @@ void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)
         float pdf = 0.f;
         bool visible = false;
 
-        float3 Li = light.SampleLi(position, payload.LightSample0, wi, pdf, visible);
+        float3 Li = light.SampleLi(position, payload.LightSamples[i], wi, pdf, visible);
 
         if (visible)
         {
