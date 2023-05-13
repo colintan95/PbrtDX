@@ -18,4 +18,9 @@ struct HaltonEntry
     uint16_t Prime;
 };
 
+struct ClosestHitConstants
+{
+    uint32_t VisibilityHitGroupBaseIndex;
+};
+
 #endif // SHADERS_COMMON_H

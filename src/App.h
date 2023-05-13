@@ -2,6 +2,8 @@
 
 #include "ResourceManager.h"
 
+#include "shaders/Common.h"
+
 #include <d3d12.h>
 #include <dxgi1_6.h>
 #include <winrt/base.h>
@@ -36,7 +38,7 @@ private:
 
     void CreateAccelerationStructures();
 
-    void CreateSharedResources();
+    void CreateOtherResources();
 
     void CreateDescriptors();
 
@@ -119,6 +121,9 @@ private:
     winrt::com_ptr<ID3D12Resource> m_haltonEntries;
     winrt::com_ptr<ID3D12Resource> m_haltonPerms;
 
+    winrt::com_ptr<ID3D12Resource> m_closestHitConstantsBuffer;
+    ClosestHitConstants* m_closestHitConstants = nullptr;
+
     std::unique_ptr<DescriptorHeap> m_descriptorHeap;
 
     D3D12_GPU_DESCRIPTOR_HANDLE m_filmUav;
@@ -169,7 +174,8 @@ private:
     {
         enum Param
         {
-            Indices = 0,
+            Constants = 0,
+            Indices,
             Normals,
             UVs,
             Texture,
@@ -186,6 +192,7 @@ private:
             HitGroupRootSig,
             HitGroupRootSigAssoc,
             HitGroup,
+            VisibilityHitGroup,
             LightHitGroup,
             ShaderConfig,
             PipelineConfig,

@@ -38,6 +38,21 @@ public:
         return resource;
     }
 
+    static size_t Align(size_t size, size_t alignment) {
+        return (size + (alignment - 1)) & ~(alignment - 1);
+    }
+
+    template<typename T>
+    winrt::com_ptr<ID3D12Resource> CreateUploadBufferAndMap(T** ptr)
+    {
+        winrt::com_ptr<ID3D12Resource> resource = CreateUploadBuffer(
+            Align(sizeof(T), D3D12_CONSTANT_BUFFER_DATA_PLACEMENT_ALIGNMENT));
+
+        winrt::check_hresult(resource->Map(0, nullptr, reinterpret_cast<void**>(ptr)));
+
+        return resource;
+    }
+
     template<typename T>
     class UploadIterator
     {

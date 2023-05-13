@@ -2,7 +2,6 @@
 
 #include "gen/shaders/Shader.h"
 #include "Mesh.h"
-#include "shaders/Common.h"
 
 #include <d3dx12.h>
 #include <glm/gtc/matrix_transform.hpp>
@@ -22,6 +21,11 @@ static const wchar_t* const kClosestHitShaderName = L"ClosestHitShader";
 static const wchar_t* const kMissShaderName = L"MissShader";
 
 static const wchar_t* const kHitGroupName = L"HitGroup";
+
+static const wchar_t* const kVisibilityClosestHitShaderName = L"VisibilityClosestHitShader";
+static const wchar_t* const kVisibilityMissShaderName = L"VisibilityMissShader";
+
+static const wchar_t* const kVisibilityHitGroupName = L"VisibilityHitGroup";
 
 static const wchar_t* const kSphereIntersectShaderName = L"SphereIntersectShader";
 static const wchar_t* const kLightClosestHitShaderName = L"LightClosestHitShader";
@@ -46,7 +50,7 @@ App::App(HWND hwnd) : m_hwnd(hwnd)
 
     CreateAccelerationStructures();
 
-    CreateSharedResources();
+    CreateOtherResources();
 
     CreateDescriptors();
 
@@ -55,11 +59,11 @@ App::App(HWND hwnd) : m_hwnd(hwnd)
 
 void App::CreateDevice()
 {
-    // com_ptr<ID3D12Debug1> debugController;
-    // check_hresult(D3D12GetDebugInterface(IID_PPV_ARGS(debugController.put())));
+    com_ptr<ID3D12Debug1> debugController;
+    check_hresult(D3D12GetDebugInterface(IID_PPV_ARGS(debugController.put())));
 
-    // debugController->EnableDebugLayer();
-    // debugController->SetEnableGPUBasedValidation(true);
+    debugController->EnableDebugLayer();
+    debugController->SetEnableGPUBasedValidation(true);
 
     check_hresult(CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(m_factory.put())));
 
@@ -200,6 +204,10 @@ void App::CreatePipeline()
 
         D3D12_ROOT_PARAMETER1 params[HitGroup::Param::NUM_PARAMS] = {};
 
+        params[HitGroup::Param::Constants].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        params[HitGroup::Param::Constants].Descriptor.ShaderRegister = 0;
+        params[HitGroup::Param::Constants].Descriptor.RegisterSpace = 1;
+
         params[HitGroup::Param::Indices].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
         params[HitGroup::Param::Indices].Descriptor.ShaderRegister = 0;
         params[HitGroup::Param::Indices].Descriptor.RegisterSpace = 1;
@@ -243,6 +251,8 @@ void App::CreatePipeline()
     dxilExports.push_back({kRayGenShaderName, nullptr, D3D12_EXPORT_FLAG_NONE});
     dxilExports.push_back({kClosestHitShaderName, nullptr, D3D12_EXPORT_FLAG_NONE});
     dxilExports.push_back({kMissShaderName, nullptr, D3D12_EXPORT_FLAG_NONE});
+    dxilExports.push_back({kVisibilityClosestHitShaderName, nullptr, D3D12_EXPORT_FLAG_NONE});
+    dxilExports.push_back({kVisibilityMissShaderName, nullptr, D3D12_EXPORT_FLAG_NONE});
     dxilExports.push_back({kSphereIntersectShaderName, nullptr, D3D12_EXPORT_FLAG_NONE});
     dxilExports.push_back({kLightClosestHitShaderName, nullptr, D3D12_EXPORT_FLAG_NONE});
 
@@ -280,6 +290,14 @@ void App::CreatePipeline()
     subObjs[SubObj::HitGroup].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
     subObjs[SubObj::HitGroup].pDesc = &hitGroupDesc;
 
+    D3D12_HIT_GROUP_DESC visibilityHitGroupDesc{};
+    visibilityHitGroupDesc.HitGroupExport = kVisibilityHitGroupName;
+    visibilityHitGroupDesc.Type = D3D12_HIT_GROUP_TYPE_TRIANGLES;
+    visibilityHitGroupDesc.ClosestHitShaderImport = kVisibilityClosestHitShaderName;
+
+    subObjs[SubObj::VisibilityHitGroup].Type = D3D12_STATE_SUBOBJECT_TYPE_HIT_GROUP;
+    subObjs[SubObj::VisibilityHitGroup].pDesc = &visibilityHitGroupDesc;
+
     D3D12_HIT_GROUP_DESC lightHitGroupDesc{};
     lightHitGroupDesc.HitGroupExport = kLightHitGroupName;
     lightHitGroupDesc.Type = D3D12_HIT_GROUP_TYPE_PROCEDURAL_PRIMITIVE;
@@ -297,7 +315,7 @@ void App::CreatePipeline()
     subObjs[SubObj::ShaderConfig].pDesc = &shaderConfig;
 
     D3D12_RAYTRACING_PIPELINE_CONFIG pipelineConfig{};
-    pipelineConfig.MaxTraceRecursionDepth = 1;
+    pipelineConfig.MaxTraceRecursionDepth = 2;
 
     subObjs[SubObj::PipelineConfig].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
     subObjs[SubObj::PipelineConfig].pDesc = &pipelineConfig;
@@ -647,7 +665,7 @@ static constexpr uint16_t PRIMES[] = {
     7829, 7841, 7853, 7867, 7873, 7877, 7879, 7883, 7901, 7907, 7919};
 
 
-void App::CreateSharedResources()
+void App::CreateOtherResources()
 {
     {
         CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
@@ -690,11 +708,13 @@ void App::CreateSharedResources()
         }
 
         auto it = permutations.begin() + entry.PermutationOffset;
-
         std::shuffle(it, it + entry.Prime, std::default_random_engine(seed));
     }
 
     m_haltonPerms = m_resourceManager->CreateBufferAndUpload(std::span(permutations));
+
+    m_closestHitConstantsBuffer =
+        m_resourceManager->CreateUploadBufferAndMap(&m_closestHitConstants);
 }
 
 void App::CreateDescriptors()
@@ -789,13 +809,22 @@ struct RayGenShaderRecord
     ShaderId ShaderId;
 };
 
-struct GeomHitGroupShaderRecord
+union GeometryHitGroupShaderRecord
 {
-    ShaderId ShaderId;
-    D3D12_GPU_VIRTUAL_ADDRESS Indices;
-    D3D12_GPU_VIRTUAL_ADDRESS Normals;
-    D3D12_GPU_VIRTUAL_ADDRESS UVs;
-    D3D12_GPU_DESCRIPTOR_HANDLE TextureSrv;
+    struct
+    {
+        ShaderId ShaderId;
+        D3D12_GPU_VIRTUAL_ADDRESS Constants;
+        D3D12_GPU_VIRTUAL_ADDRESS Indices;
+        D3D12_GPU_VIRTUAL_ADDRESS Normals;
+        D3D12_GPU_VIRTUAL_ADDRESS UVs;
+        D3D12_GPU_DESCRIPTOR_HANDLE TextureSrv;
+    } L;
+
+    struct
+    {
+        ShaderId ShaderId;
+    } Visibility;
 };
 
 struct LightHitGroupShaderRecord
@@ -805,7 +834,7 @@ struct LightHitGroupShaderRecord
 
 union HitGroupShaderRecord
 {
-    GeomHitGroupShaderRecord Geometry;
+    GeometryHitGroupShaderRecord Geometry;
     LightHitGroupShaderRecord Light;
 };
 
@@ -838,7 +867,7 @@ void App::CreateShaderTables()
     {
         m_hitGroupShaderTable.Stride = Align(sizeof(HitGroupShaderRecord),
                                              D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
-        m_hitGroupShaderTable.Size = m_hitGroupShaderTable.Stride * (m_geometries.size() + 1);
+        m_hitGroupShaderTable.Size = m_hitGroupShaderTable.Stride * (m_geometries.size() * 2 + 1);
         m_hitGroupShaderTable.Buffer =
              m_resourceManager->CreateUploadBuffer(m_hitGroupShaderTable.Size);
 
@@ -847,28 +876,43 @@ void App::CreateShaderTables()
 
         for (const auto& geom : m_geometries)
         {
-            it->Geometry.ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kHitGroupName));
-            it->Geometry.Indices = geom.Indices->GetGPUVirtualAddress();
-            it->Geometry.Normals = geom.Normals->GetGPUVirtualAddress();
-            it->Geometry.UVs = geom.UVs->GetGPUVirtualAddress();
-            it->Geometry.TextureSrv = geom.TextureSrv;
+            it->Geometry.L.ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kHitGroupName));
+            it->Geometry.L.Constants = m_closestHitConstantsBuffer->GetGPUVirtualAddress();
+            it->Geometry.L.Indices = geom.Indices->GetGPUVirtualAddress();
+            it->Geometry.L.Normals = geom.Normals->GetGPUVirtualAddress();
+            it->Geometry.L.UVs = geom.UVs->GetGPUVirtualAddress();
+            it->Geometry.L.TextureSrv = geom.TextureSrv;
             ++it;
         }
 
         it->Light.ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kLightHitGroupName));
+        ++it;
+
+        m_closestHitConstants->VisibilityHitGroupBaseIndex =
+            static_cast<uint32_t>(m_geometries.size() + 1);
+
+        for (int i = 0; i < m_geometries.size(); ++i)
+        {
+            it->Geometry.Visibility.ShaderId =
+                ShaderId(pipelineProps->GetShaderIdentifier(kVisibilityHitGroupName));
+            ++it;
+        }
     }
 
     {
         m_missShaderTable.Stride = Align(sizeof(MissShaderRecord),
                                          D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
-        m_missShaderTable.Size = m_missShaderTable.Stride;
+        m_missShaderTable.Size = m_missShaderTable.Stride * 2;
         m_missShaderTable.Buffer =
-            m_resourceManager->CreateUploadBuffer(m_missShaderTable.Stride);
+            m_resourceManager->CreateUploadBuffer(m_missShaderTable.Size);
 
         auto it = m_resourceManager->GetUploadIterator<MissShaderRecord>(
             m_missShaderTable.Buffer.get(), m_missShaderTable.Stride);
 
         it->ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kMissShaderName));
+        ++it;
+
+        it->ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kVisibilityMissShaderName));
         ++it;
     }
 }

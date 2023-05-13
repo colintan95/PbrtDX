@@ -8,6 +8,10 @@ struct RayPayload {
 
 typedef BuiltInTriangleIntersectionAttributes IntersectAttributes;
 
+struct VisibilityPayload {
+    float T;
+};
+
 // Global descriptors.
 
 RaytracingAccelerationStructure g_scene : register(t0);
@@ -148,15 +152,6 @@ void RayGenShader()
     g_film[DispatchRaysIndex().xy] = payload.Color;
 }
 
-// ClosestHitShader descriptors.
-
-ByteAddressBuffer g_indices: register(t0, space1);
-
-StructuredBuffer<float3> g_normals : register(t1, space1);
-StructuredBuffer<float2> g_uvs : register(t2, space1);
-
-Texture2D g_texture : register(t3, space1);
-
 static const float PI = 3.14159265358979323846f;
 
 float3 SphericalDirection(float sinTheta, float cosTheta, float phi, float3 x, float3 y, float3 z)
@@ -177,6 +172,69 @@ void CoordinateSystem(float3 v1, out float3 v2, out float3 v3)
 
     v3 = cross(v1, v2);
 }
+
+// ClosestHitShader descriptors.
+
+ConstantBuffer<ClosestHitConstants> g_closestHitConstants : register(b0, space1);
+
+ByteAddressBuffer g_indices: register(t0, space1);
+
+StructuredBuffer<float3> g_normals : register(t1, space1);
+StructuredBuffer<float2> g_uvs : register(t2, space1);
+
+Texture2D g_texture : register(t3, space1);
+
+struct DiffuseSphereLight
+{
+    SphereLight m_data;
+
+    float3 SampleLi(float3 p, float2 u, out float3 wi, out float pdf, out bool visible)
+    {
+        float dc = distance(p, m_data.Position);
+
+        float3 wc = normalize(m_data.Position - p);
+        float3 wcX, wcY;
+        CoordinateSystem(wc, wcX, wcY);
+
+        float sinThetaMax = m_data.Radius / dc;
+        float invSinThetaMax = 1.f / sinThetaMax;
+
+        float cosThetaMax = sqrt(max(0.f, 1 - sinThetaMax * sinThetaMax));
+
+        float cosTheta = (cosThetaMax - 1.f) * u.x + 1.f;
+        float sinThetaSq = 1 - cosTheta * cosTheta;
+
+        float cosAlpha = sinThetaSq * invSinThetaMax +
+            cosTheta * sqrt(max(0.f, 1.f - sinThetaSq * invSinThetaMax * invSinThetaMax));
+        float sinAlpha = sqrt(max(0.f, 1.f - cosAlpha * cosAlpha));
+        float phi = u.y * 2.f * PI;
+
+        float3 dir = SphericalDirection(sinAlpha, cosAlpha, phi, -wcX, -wcY, -wc);
+
+        float3 lightSamplePos = m_data.Position + m_data.Radius * dir;
+
+        wi = normalize(lightSamplePos - p);
+        pdf = 1.f / (2.f * PI * (1.f - cosThetaMax));
+
+        RayDesc ray;
+        ray.Origin = p;
+        ray.Direction = wi;
+        ray.TMin = 0.1f;
+        ray.TMax = 1000.f;
+
+        float lightDist = distance(p, lightSamplePos);
+
+        VisibilityPayload payload;
+        payload.T = 1000000.f;
+
+        TraceRay(g_scene, RAY_FLAG_NONE, ~0, g_closestHitConstants.VisibilityHitGroupBaseIndex, 1,
+                 1, ray, payload);
+
+        visible = (payload.T >= lightDist);
+
+        return m_data.L;
+    }
+};
 
 [shader("closesthit")]
 void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)
@@ -201,7 +259,7 @@ void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)
     float3 normal = normalize(n0 + attr.barycentrics.x * (n1 - n0) +
                               attr.barycentrics.y * (n2 - n0));
 
-    float3 hitPos = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
+    float3 position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
 
     float3 L = float3(0.f, 0.f, 0.f);
 
@@ -210,37 +268,19 @@ void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)
 
     for (int i = 0; i < 2; ++i)
     {
-        SphereLight light = g_lights[i];
+        DiffuseSphereLight light;
+        light.m_data = g_lights[i];
 
-        float dc = distance(hitPos, light.Position);
+        float3 wi = float3(0.f, 0.f, 0.f);
+        float pdf = 0.f;
+        bool visible = false;
 
-        float3 wc = normalize(light.Position - hitPos);
-        float3 wcX, wcY;
-        CoordinateSystem(wc, wcX, wcY);
+        float3 Li = light.SampleLi(position, payload.LightSample0, wi, pdf, visible);
 
-        float sinThetaMax = light.Radius / dc;
-        float invSinThetaMax = 1.f / sinThetaMax;
-
-        float cosThetaMax = sqrt(max(0.f, 1 - sinThetaMax * sinThetaMax));
-
-        float cosTheta = (cosThetaMax - 1.f) * payload.LightSample0.x + 1.f;
-        float sinThetaSq = 1 - cosTheta * cosTheta;
-
-        float cosAlpha = sinThetaSq * invSinThetaMax +
-            cosTheta * sqrt(max(0.f, 1.f - sinThetaSq * invSinThetaMax * invSinThetaMax));
-        float sinAlpha = sqrt(max(0.f, 1.f - cosAlpha * cosAlpha));
-        float phi = payload.LightSample0.y * 2.f * PI;
-
-        float3 dir = SphericalDirection(sinAlpha, cosAlpha, phi, -wcX, -wcY, -wc);
-
-        float3 lightSamplePos = light.Position + light.Radius * dir;
-
-        float3 wi = normalize(lightSamplePos - hitPos);
-
-        float3 Li = light.L;
-        float pdf = 1.f / (2.f * PI * (1.f - cosThetaMax));
-
-        L += f * Li * abs(dot(wi, normal)) / pdf;
+        if (visible)
+        {
+            L += f * Li * abs(dot(wi, normal)) / pdf;
+        }
     }
 
     payload.Color = float4(g_texture.SampleLevel(g_sampler, uv, 0).rgb * L, 1.f);
@@ -250,6 +290,17 @@ void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)
 void MissShader(inout RayPayload payload)
 {
     payload.Color = float4(0.f, 0.f, 0.f, 1.f);
+}
+
+[shader("closesthit")]
+void VisibilityClosestHitShader(inout VisibilityPayload payload, IntersectAttributes attr)
+{
+    payload.T = RayTCurrent();
+}
+
+[shader("miss")]
+void VisibilityMissShader(inout VisibilityPayload payload)
+{
 }
 
 struct SphereIntersectAttributes {
