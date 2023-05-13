@@ -317,14 +317,14 @@ void App::CreatePipeline()
     subObjs[SubObj::LightHitGroup].pDesc = &lightHitGroupDesc;
 
     D3D12_RAYTRACING_SHADER_CONFIG shaderConfig{};
-    shaderConfig.MaxPayloadSizeInBytes = sizeof(float) * 8;
+    shaderConfig.MaxPayloadSizeInBytes = sizeof(float) * 16;
     shaderConfig.MaxAttributeSizeInBytes = sizeof(float) * 2;
 
     subObjs[SubObj::ShaderConfig].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_SHADER_CONFIG;
     subObjs[SubObj::ShaderConfig].pDesc = &shaderConfig;
 
     D3D12_RAYTRACING_PIPELINE_CONFIG pipelineConfig{};
-    pipelineConfig.MaxTraceRecursionDepth = 2;
+    pipelineConfig.MaxTraceRecursionDepth = 3;
 
     subObjs[SubObj::PipelineConfig].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
     subObjs[SubObj::PipelineConfig].pDesc = &pipelineConfig;
@@ -369,7 +369,7 @@ void App::LoadScene()
                     glm::rotate(glm::mat4(1.f), 1.35f, glm::vec3(0.403f, -0.755f, -0.517f)) *
                     glm::scale(glm::mat4(1.f), glm::vec3(0.5f));
 
-    transforms[2] = glm::mat4(1.f);
+    transforms[2] = glm::scale(glm::mat4(1.f), glm::vec3(0.213f));
 
     {
         m_transformBuffer = m_resourceManager->CreateUploadBuffer(

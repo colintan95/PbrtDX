@@ -1,8 +1,10 @@
 #include "Common.h"
 
 struct RayPayload {
-    float4 Color;
-    float2 LightSamples[2];
+    float3 L;
+    uint Depth;
+
+    float2 Samples[5];
 };
 
 typedef BuiltInTriangleIntersectionAttributes IntersectAttributes;
@@ -134,15 +136,15 @@ void RayGenShader()
     int samplerDim = 2;
 
     RayPayload payload;
-    payload.Color = float4(0.f, 0.f, 0.f, 0.f);
+    payload.L = float3(0.f, 0.f, 0.f);
+    payload.Depth = 1;
 
-    payload.LightSamples[0] = float2(ScrambledRadicalInverse(samplerDim, haltonIdx),
-                                     ScrambledRadicalInverse(samplerDim + 1, haltonIdx));
-    samplerDim += 2;
-
-    payload.LightSamples[1] = float2(ScrambledRadicalInverse(samplerDim, haltonIdx),
-                                     ScrambledRadicalInverse(samplerDim + 1, haltonIdx));
-    samplerDim += 2;
+    for (int i = 0; i < 5; ++i)
+    {
+        payload.Samples[i] = float2(ScrambledRadicalInverse(samplerDim, haltonIdx),
+                                    ScrambledRadicalInverse(samplerDim + 1, haltonIdx));
+        samplerDim += 2;
+    }
 
     float2 filmPos = (float2)pixel + filmOffset;
 
@@ -152,6 +154,8 @@ void RayGenShader()
             lerp(maxScreenY, -maxScreenY, filmPos.y / (float)DispatchRaysDimensions().y),
             -1.f));
 
+    float3 L = float3(0.f, 0.f, 0.f);
+
     RayDesc ray;
     ray.Origin = float3(0.f, 2.1088f, 13.574f);
     ray.Direction = rayDir;
@@ -160,11 +164,13 @@ void RayGenShader()
 
     TraceRay(g_scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
 
+    L += payload.L;
+
     float3 prevFilmVal = g_film[pixel].rgb;
 
     float N = (float)(sampleIdx + 1);
 
-    g_film[pixel].rgb = ((N - 1.f) / N) * prevFilmVal + (1.f / N) * payload.Color.rgb;
+    g_film[pixel].rgb = ((N - 1.f) / N) * prevFilmVal + (1.f / N) * L;
     g_film[pixel].a = 1.f;
 }
 
@@ -189,6 +195,56 @@ void CoordinateSystem(float3 v1, out float3 v2, out float3 v3)
     v3 = cross(v1, v2);
 }
 
+float2 ConcentricSampleDisk(float2 u)
+{
+    float2 offset = 2.f * u - float2(1.f, 1.f);
+
+    if (offset.x == 0 && offset.y == 0)
+        return float2(0.f, 0.f);
+
+    float theta = 0.f;
+    float r = 0.f;
+
+    if (abs(offset.x) > abs(offset.y))
+    {
+        r = offset.x;
+        theta = PI / 4.f * (offset.y / offset.x);
+    }
+    else
+    {
+        r = offset.y;
+        theta = PI / 2.f * PI / 4.f * (offset.x / offset.y);
+    }
+
+    return r * float2(cos(theta), sin(theta));
+}
+
+float3 CosineSampleHemisphere(float2 u)
+{
+    float2 d = ConcentricSampleDisk(u);
+    float z = sqrt(max(0.f, 1.f - d.x * d.x - d.y * d.y));
+
+    return float3(d.x, d.y, z);
+}
+
+void Lambertian_Sample_f(float3 wo, float2 u, float3 n, out float3 wi, out float pdf)
+{
+    float3 nx, ny;
+    CoordinateSystem(n, nx, ny);
+
+    wo = float3(dot(wo, nx), dot(wo, ny), dot(wo, n));
+
+    wi = CosineSampleHemisphere(u);
+    if (wo.z > 0.f)
+    {
+        wi.z *= -1.f;
+    }
+
+    pdf = (wo.z * wi.z > 0) ? abs(wi.z) / PI : 0.f;
+
+    wi = wi.x * nx + wi.y * ny + wi.z * n;
+}
+
 // Hit group descriptors.
 
 ConstantBuffer<HitGroupShaderConstants> g_hitGroupConstants : register(b0, space1);
@@ -206,7 +262,7 @@ struct DiffuseSphereLight
 {
     SphereLight m_data;
 
-    float3 SampleLi(float3 p, float2 u, out float3 wi, out float pdf, out bool visible)
+    float3 Sample_Li(float3 p, float2 u, out float3 wi, out float pdf, out bool visible)
     {
         float dc = distance(p, m_data.Position);
 
@@ -293,7 +349,7 @@ void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)
         float pdf = 0.f;
         bool visible = false;
 
-        float3 Li = light.SampleLi(position, payload.LightSamples[i], wi, pdf, visible);
+        float3 Li = light.Sample_Li(position, payload.Samples[i], wi, pdf, visible);
 
         if (visible)
         {
@@ -301,18 +357,43 @@ void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)
         }
     }
 
+    if (payload.Depth < 2)
+    {
+        RayPayload reflectPayload;
+        reflectPayload.L = float3(0.f, 0.f, 0.f);
+        reflectPayload.Depth = payload.Depth + 1;
+        reflectPayload.Samples[0] = payload.Samples[3];
+        reflectPayload.Samples[1] = payload.Samples[4];
+
+        float3 wo = normalize(-WorldRayDirection());
+
+        float3 wi = float3(0.f, 0.f, 0.f);
+        float pdf = 0.f;
+        Lambertian_Sample_f(wo, payload.Samples[2], normal, wi, pdf);
+
+        RayDesc reflectRay;
+        reflectRay.Origin = position;
+        reflectRay.Direction = wi;
+        reflectRay.TMin = 0.1f;
+        reflectRay.TMax = 1000.f;
+
+        TraceRay(g_scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, reflectRay,
+                 reflectPayload);
+
+        L += reflectPayload.L;
+    }
+
     if (g_hitGroupGeomConstants[GeometryIndex()].IsTextured)
     {
         L *= g_texture.SampleLevel(g_sampler, uv, 0).rgb;
     }
 
-    payload.Color = float4(L, 1.f);
+    payload.L = L;
 }
 
 [shader("miss")]
 void MissShader(inout RayPayload payload)
 {
-    payload.Color = float4(0.f, 0.f, 0.f, 1.f);
 }
 
 [shader("closesthit")]
@@ -333,7 +414,7 @@ struct SphereIntersectAttributes {
 [shader("closesthit")]
 void LightClosestHitShader(inout RayPayload payload, SphereIntersectAttributes attr)
 {
-    payload.Color = float4(1.f, 0.f, 0.f, 1.f);
+    payload.L = float3(0.f, 0.f, 0.f);
 }
 
 [shader("intersection")]
