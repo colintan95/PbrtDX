@@ -199,14 +199,14 @@ void App::CreatePipeline()
         D3D12_DESCRIPTOR_RANGE1 range{};
         range.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
         range.NumDescriptors = 1;
-        range.BaseShaderRegister = 3;
+        range.BaseShaderRegister = 4;
         range.RegisterSpace = 1;
 
         D3D12_ROOT_PARAMETER1 params[HitGroup::Param::NUM_PARAMS] = {};
 
-        params[HitGroup::Param::Constants].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-        params[HitGroup::Param::Constants].Descriptor.ShaderRegister = 0;
-        params[HitGroup::Param::Constants].Descriptor.RegisterSpace = 1;
+        params[HitGroup::Param::ShaderConstants].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
+        params[HitGroup::Param::ShaderConstants].Descriptor.ShaderRegister = 0;
+        params[HitGroup::Param::ShaderConstants].Descriptor.RegisterSpace = 1;
 
         params[HitGroup::Param::Indices].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
         params[HitGroup::Param::Indices].Descriptor.ShaderRegister = 0;
@@ -219,6 +219,10 @@ void App::CreatePipeline()
         params[HitGroup::Param::UVs].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
         params[HitGroup::Param::UVs].Descriptor.ShaderRegister = 2;
         params[HitGroup::Param::UVs].Descriptor.RegisterSpace = 1;
+
+        params[HitGroup::Param::GeometryConstants].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
+        params[HitGroup::Param::GeometryConstants].Descriptor.ShaderRegister = 3;
+        params[HitGroup::Param::GeometryConstants].Descriptor.RegisterSpace = 1;
 
         params[HitGroup::Param::Texture].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
         params[HitGroup::Param::Texture].DescriptorTable.NumDescriptorRanges = 1;
@@ -340,7 +344,7 @@ struct Mat3x4
 
 void App::LoadScene()
 {
-    m_geometries.resize(2);
+    m_geometries.resize(3);
 
     LoadGeometry("scenes/pbrt-book/geometry/mesh_00002.ply",
                  "scenes/pbrt-book/texture/book_pages.png", &m_geometries[0]);
@@ -348,7 +352,9 @@ void App::LoadScene()
     LoadGeometry("scenes/pbrt-book/geometry/mesh_00003.ply",
                  "scenes/pbrt-book/texture/book_pbrt.png", &m_geometries[1]);
 
-    glm::mat4 transforms[2] = {};
+    LoadGeometry("scenes/pbrt-book/geometry/mesh_00001.ply", std::nullopt, &m_geometries[2]);
+
+    glm::mat4 transforms[3] = {};
 
     transforms[0] = glm::translate(glm::mat4(1.f), glm::vec3(0.f, 2.2f, 0.f)) *
                     glm::rotate(glm::mat4(1.f), 1.35f, glm::vec3(0.403f, -0.755f, -0.517f)) *
@@ -358,9 +364,12 @@ void App::LoadScene()
                     glm::rotate(glm::mat4(1.f), 1.35f, glm::vec3(0.403f, -0.755f, -0.517f)) *
                     glm::scale(glm::mat4(1.f), glm::vec3(0.5f));
 
-    m_transformBuffer = m_resourceManager->CreateUploadBuffer(sizeof(Mat3x4) * m_geometries.size());
+    transforms[2] = glm::mat4(1.f);
 
     {
+        m_transformBuffer = m_resourceManager->CreateUploadBuffer(
+            sizeof(Mat3x4) * m_geometries.size());
+
         auto it = m_resourceManager->GetUploadIterator<Mat3x4>(m_transformBuffer.get());
 
         for (size_t i = 0; i < m_geometries.size(); ++i)
@@ -375,6 +384,23 @@ void App::LoadScene()
 
             ++it;
         }
+    }
+
+    {
+        m_hitGroupGeomConstantsBuffer =
+            m_resourceManager->CreateUploadBuffer(sizeof(HitGroupGeometryConstants) * 2);
+
+        auto it = m_resourceManager->GetUploadIterator<HitGroupGeometryConstants>(
+            m_hitGroupGeomConstantsBuffer.get());
+
+        it->IsTextured = true;
+        ++it;
+
+        it->IsTextured = true;
+        ++it;
+
+        it->IsTextured = false;
+        ++it;
     }
 
     {
@@ -406,7 +432,7 @@ void App::LoadScene()
     }
 }
 
-void App::LoadGeometry(std::filesystem::path path, std::filesystem::path texture,
+void App::LoadGeometry(std::filesystem::path path, std::optional<std::filesystem::path> texture,
                        Geometry* geometry)
 {
     Mesh mesh{};
@@ -420,7 +446,8 @@ void App::LoadGeometry(std::filesystem::path path, std::filesystem::path texture
     geometry->VertexCount = static_cast<uint32_t>(mesh.Positions.size());
     geometry->IndexCount = static_cast<uint32_t>(mesh.Indices.size());
 
-    geometry->Texture = m_resourceManager->LoadImage(texture);
+    if (texture)
+        geometry->Texture = m_resourceManager->LoadImage(*texture);
 }
 
 void App::CreateAccelerationStructures()
@@ -713,8 +740,8 @@ void App::CreateOtherResources()
 
     m_haltonPerms = m_resourceManager->CreateBufferAndUpload(std::span(permutations));
 
-    m_closestHitConstantsBuffer =
-        m_resourceManager->CreateUploadBufferAndMap(&m_closestHitConstants);
+    m_hitGroupShaderConstantsBuffer =
+        m_resourceManager->CreateUploadBufferAndMap(&m_hitGroupShaderConstants);
 }
 
 void App::CreateDescriptors()
@@ -814,10 +841,11 @@ union GeometryHitGroupShaderRecord
     struct
     {
         ShaderId ShaderId;
-        D3D12_GPU_VIRTUAL_ADDRESS Constants;
+        D3D12_GPU_VIRTUAL_ADDRESS ShaderConstants;
         D3D12_GPU_VIRTUAL_ADDRESS Indices;
         D3D12_GPU_VIRTUAL_ADDRESS Normals;
         D3D12_GPU_VIRTUAL_ADDRESS UVs;
+        D3D12_GPU_VIRTUAL_ADDRESS GeometryConstants;
         D3D12_GPU_DESCRIPTOR_HANDLE TextureSrv;
     } L;
 
@@ -877,10 +905,13 @@ void App::CreateShaderTables()
         for (const auto& geom : m_geometries)
         {
             it->Geometry.L.ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kHitGroupName));
-            it->Geometry.L.Constants = m_closestHitConstantsBuffer->GetGPUVirtualAddress();
+            it->Geometry.L.ShaderConstants =
+                m_hitGroupShaderConstantsBuffer->GetGPUVirtualAddress();
             it->Geometry.L.Indices = geom.Indices->GetGPUVirtualAddress();
             it->Geometry.L.Normals = geom.Normals->GetGPUVirtualAddress();
             it->Geometry.L.UVs = geom.UVs->GetGPUVirtualAddress();
+            it->Geometry.L.GeometryConstants =
+                m_hitGroupGeomConstantsBuffer->GetGPUVirtualAddress();
             it->Geometry.L.TextureSrv = geom.TextureSrv;
             ++it;
         }
@@ -888,7 +919,7 @@ void App::CreateShaderTables()
         it->Light.ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kLightHitGroupName));
         ++it;
 
-        m_closestHitConstants->VisibilityHitGroupBaseIndex =
+        m_hitGroupShaderConstants->VisibilityHitGroupBaseIndex =
             static_cast<uint32_t>(m_geometries.size() + 1);
 
         for (int i = 0; i < m_geometries.size(); ++i)

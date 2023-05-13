@@ -15,7 +15,7 @@ compile_shader(
     OUTPUT gen/shaders/Shader.h
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Shader.hlsl
     VAR_NAME g_shader
-    ARGS ${COMMON_SHADER_FLAGS} -T lib_6_3)
+    ARGS ${COMMON_SHADER_FLAGS} -T lib_6_5)
 
 # For including headers generated in the build directory.
 target_include_directories(PbrtDX PRIVATE ${CMAKE_CURRENT_BINARY_DIR})

@@ -18,9 +18,14 @@ struct HaltonEntry
     uint16_t Prime;
 };
 
-struct ClosestHitConstants
+struct HitGroupShaderConstants
 {
     uint32_t VisibilityHitGroupBaseIndex;
+};
+
+struct HitGroupGeometryConstants
+{
+    uint32_t IsTextured;
 };
 
 #endif // SHADERS_COMMON_H

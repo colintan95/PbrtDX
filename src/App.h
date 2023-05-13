@@ -8,6 +8,7 @@
 #include <dxgi1_6.h>
 #include <winrt/base.h>
 
+#include <optional>
 #include <vector>
 
 class App
@@ -33,7 +34,7 @@ private:
 
     void LoadScene();
 
-    void LoadGeometry(std::filesystem::path path, std::filesystem::path texture,
+    void LoadGeometry(std::filesystem::path path, std::optional<std::filesystem::path> texture,
                       Geometry* geometry);
 
     void CreateAccelerationStructures();
@@ -107,6 +108,7 @@ private:
     std::vector<Geometry> m_geometries;
 
     winrt::com_ptr<ID3D12Resource> m_transformBuffer;
+    winrt::com_ptr<ID3D12Resource> m_hitGroupGeomConstantsBuffer;
 
     winrt::com_ptr<ID3D12Resource> m_aabbBuffer;
 
@@ -121,8 +123,8 @@ private:
     winrt::com_ptr<ID3D12Resource> m_haltonEntries;
     winrt::com_ptr<ID3D12Resource> m_haltonPerms;
 
-    winrt::com_ptr<ID3D12Resource> m_closestHitConstantsBuffer;
-    ClosestHitConstants* m_closestHitConstants = nullptr;
+    winrt::com_ptr<ID3D12Resource> m_hitGroupShaderConstantsBuffer;
+    HitGroupShaderConstants* m_hitGroupShaderConstants = nullptr;
 
     std::unique_ptr<DescriptorHeap> m_descriptorHeap;
 
@@ -174,10 +176,11 @@ private:
     {
         enum Param
         {
-            Constants = 0,
+            ShaderConstants = 0,
             Indices,
             Normals,
             UVs,
+            GeometryConstants,
             Texture,
             NUM_PARAMS
         };

@@ -173,16 +173,18 @@ void CoordinateSystem(float3 v1, out float3 v2, out float3 v3)
     v3 = cross(v1, v2);
 }
 
-// ClosestHitShader descriptors.
+// Hit group descriptors.
 
-ConstantBuffer<ClosestHitConstants> g_closestHitConstants : register(b0, space1);
+ConstantBuffer<HitGroupShaderConstants> g_hitGroupConstants : register(b0, space1);
 
 ByteAddressBuffer g_indices: register(t0, space1);
 
 StructuredBuffer<float3> g_normals : register(t1, space1);
 StructuredBuffer<float2> g_uvs : register(t2, space1);
 
-Texture2D g_texture : register(t3, space1);
+StructuredBuffer<HitGroupGeometryConstants> g_hitGroupGeomConstants : register(t3, space1);
+
+Texture2D g_texture : register(t4, space1);
 
 struct DiffuseSphereLight
 {
@@ -227,7 +229,7 @@ struct DiffuseSphereLight
         VisibilityPayload payload;
         payload.T = 1000000.f;
 
-        TraceRay(g_scene, RAY_FLAG_NONE, ~0, g_closestHitConstants.VisibilityHitGroupBaseIndex, 1,
+        TraceRay(g_scene, RAY_FLAG_NONE, ~0, g_hitGroupConstants.VisibilityHitGroupBaseIndex, 1,
                  1, ray, payload);
 
         visible = (payload.T >= lightDist);
@@ -283,7 +285,12 @@ void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)
         }
     }
 
-    payload.Color = float4(g_texture.SampleLevel(g_sampler, uv, 0).rgb * L, 1.f);
+    if (g_hitGroupGeomConstants[GeometryIndex()].IsTextured)
+    {
+        L *= g_texture.SampleLevel(g_sampler, uv, 0).rgb;
+    }
+
+    payload.Color = float4(L, 1.f);
 }
 
 [shader("miss")]
