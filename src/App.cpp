@@ -958,49 +958,58 @@ void App::Render()
     check_hresult(m_cmdAllocator->Reset());
     check_hresult(m_cmdList->Reset(m_cmdAllocator.get(), nullptr));
 
-    m_cmdList->SetComputeRootSignature(m_globalRootSig.get());
+    static constexpr int MAX_SAMPLES = 2048;
 
-    ID3D12DescriptorHeap* descriptorHeaps[] = {m_descriptorHeap->Inner(), m_samplerHeap->Inner()};
-    m_cmdList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
+    if (m_sampleIdx < MAX_SAMPLES)
+    {
+        m_cmdList->SetComputeRootSignature(m_globalRootSig.get());
 
-    m_cmdList->SetComputeRootShaderResourceView(Global::Param::Scene,
-                                                m_tlas->GetGPUVirtualAddress());
+        ID3D12DescriptorHeap* descriptorHeaps[] = {
+            m_descriptorHeap->Inner(), m_samplerHeap->Inner()
+        };
+        m_cmdList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
-    m_cmdList->SetComputeRootDescriptorTable(Global::Param::Film, m_filmUav);
+        m_cmdList->SetComputeRootShaderResourceView(Global::Param::Scene,
+                                                    m_tlas->GetGPUVirtualAddress());
 
-    m_cmdList->SetComputeRoot32BitConstant(Global::Param::DrawConstants, m_sampleIdx, 0);
-    ++m_sampleIdx;
+        m_cmdList->SetComputeRootDescriptorTable(Global::Param::Film, m_filmUav);
 
-    m_cmdList->SetComputeRootDescriptorTable(Global::Param::Sampler, m_sampler);
+        m_cmdList->SetComputeRoot32BitConstant(Global::Param::DrawConstants, m_sampleIdx, 0);
+        ++m_sampleIdx;
 
-    m_cmdList->SetComputeRootShaderResourceView(Global::Param::Lights,
-                                                m_lightBuffer->GetGPUVirtualAddress());
+        m_cmdList->SetComputeRootDescriptorTable(Global::Param::Sampler, m_sampler);
 
-    m_cmdList->SetComputeRootShaderResourceView(Global::Param::HaltonEntries,
-                                                m_haltonEntries->GetGPUVirtualAddress());
-    m_cmdList->SetComputeRootShaderResourceView(Global::Param::HaltonPerms,
-                                                m_haltonPerms->GetGPUVirtualAddress());
+        m_cmdList->SetComputeRootShaderResourceView(Global::Param::Lights,
+                                                    m_lightBuffer->GetGPUVirtualAddress());
 
-    D3D12_DISPATCH_RAYS_DESC dispatchDesc{};
+        m_cmdList->SetComputeRootShaderResourceView(Global::Param::HaltonEntries,
+                                                    m_haltonEntries->GetGPUVirtualAddress());
+        m_cmdList->SetComputeRootShaderResourceView(Global::Param::HaltonPerms,
+                                                    m_haltonPerms->GetGPUVirtualAddress());
 
-    dispatchDesc.RayGenerationShaderRecord.StartAddress =
-        m_rayGenShaderTable.Buffer->GetGPUVirtualAddress();
-    dispatchDesc.RayGenerationShaderRecord.SizeInBytes = m_rayGenShaderTable.Size;
+        D3D12_DISPATCH_RAYS_DESC dispatchDesc{};
 
-    dispatchDesc.HitGroupTable.StartAddress = m_hitGroupShaderTable.Buffer->GetGPUVirtualAddress();
-    dispatchDesc.HitGroupTable.SizeInBytes = m_hitGroupShaderTable.Size;
-    dispatchDesc.HitGroupTable.StrideInBytes = m_hitGroupShaderTable.Stride;
+        dispatchDesc.RayGenerationShaderRecord.StartAddress =
+            m_rayGenShaderTable.Buffer->GetGPUVirtualAddress();
+        dispatchDesc.RayGenerationShaderRecord.SizeInBytes = m_rayGenShaderTable.Size;
 
-    dispatchDesc.MissShaderTable.StartAddress = m_missShaderTable.Buffer->GetGPUVirtualAddress();
-    dispatchDesc.MissShaderTable.SizeInBytes = m_missShaderTable.Size;
-    dispatchDesc.MissShaderTable.StrideInBytes = m_missShaderTable.Stride;
+        dispatchDesc.HitGroupTable.StartAddress =
+            m_hitGroupShaderTable.Buffer->GetGPUVirtualAddress();
+        dispatchDesc.HitGroupTable.SizeInBytes = m_hitGroupShaderTable.Size;
+        dispatchDesc.HitGroupTable.StrideInBytes = m_hitGroupShaderTable.Stride;
 
-    dispatchDesc.Width = m_windowWidth;
-    dispatchDesc.Height = m_windowHeight;
-    dispatchDesc.Depth = 1;
+        dispatchDesc.MissShaderTable.StartAddress =
+            m_missShaderTable.Buffer->GetGPUVirtualAddress();
+        dispatchDesc.MissShaderTable.SizeInBytes = m_missShaderTable.Size;
+        dispatchDesc.MissShaderTable.StrideInBytes = m_missShaderTable.Stride;
 
-    m_cmdList->SetPipelineState1(m_pipeline.get());
-    m_cmdList->DispatchRays(&dispatchDesc);
+        dispatchDesc.Width = m_windowWidth;
+        dispatchDesc.Height = m_windowHeight;
+        dispatchDesc.Depth = 1;
+
+        m_cmdList->SetPipelineState1(m_pipeline.get());
+        m_cmdList->DispatchRays(&dispatchDesc);
+    }
 
     {
         D3D12_RESOURCE_BARRIER barriers[2] = {};

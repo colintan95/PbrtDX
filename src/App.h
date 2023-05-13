@@ -88,7 +88,7 @@ private:
 
     winrt::com_ptr<ID3D12StateObject> m_pipeline;
 
-    uint32_t m_sampleIdx = 1;
+    uint32_t m_sampleIdx = 0;
 
     struct Geometry
     {
