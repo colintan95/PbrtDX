@@ -1,10 +1,9 @@
 #include "Common.h"
 
 struct RayPayload {
-    float3 Position;
     float3 Normal;
     float3 Reflectance;
-    float3 wo;
+    float HitT;
 };
 
 typedef BuiltInTriangleIntersectionAttributes IntersectAttributes;
@@ -98,33 +97,36 @@ uint64_t InverseRadicalInverse(uint64_t inverse, int base, int numDigits)
 
 struct HaltonSampler
 {
-    void StartPixelSample(uint2 pixel, int sampleIdx)
+    float2 StartPixelSample(uint2 pixel, int sampleIdx)
     {
-        int sampleStride = m_baseScales[0] * m_baseScales[1];
+        // TODO: Calculate these properly.
+        static const int baseScale0 = 128;
+        static const int baseScale1 = 243;
+        static const int baseExp0 = 7;
+        static const int baseExp1 = 5;
+        static const int multInv0 = 59;
+        static const int multInv1 = 131;
 
-        const int MAX_HALTON_RESOLUTION = 128;
+        int sampleStride = baseScale0 * baseScale1;
+
+        static const int maxHaltonResolution = 128;
 
         m_haltonIdx = 0;
 
-        uint64_t dimOffset =
-            InverseRadicalInverse(pixel.x % MAX_HALTON_RESOLUTION, 2, m_baseExps[0]);
-        m_haltonIdx += dimOffset * (sampleStride / m_baseScales[0]) * m_multInvs[0];
+        uint64_t dimOffset = InverseRadicalInverse(pixel.x % maxHaltonResolution, 2, baseExp0);
+        m_haltonIdx += dimOffset * (sampleStride / baseScale0) * multInv0;
 
-        dimOffset =
-            InverseRadicalInverse(pixel.y % MAX_HALTON_RESOLUTION, 3, m_baseExps[1]);
-        m_haltonIdx += dimOffset * (sampleStride / m_baseScales[1]) * m_multInvs[1];
+        dimOffset = InverseRadicalInverse(pixel.y % maxHaltonResolution, 3, baseExp1);
+        m_haltonIdx += dimOffset * (sampleStride / baseExp1) * multInv1;
 
         m_haltonIdx %= sampleStride;
 
         m_haltonIdx += sampleIdx * sampleStride;
 
         m_dimension = 2;
-    }
 
-    float2 GetPixel2D()
-    {
-        return float2(RadicalInverse(0, m_haltonIdx >> m_baseExps[0]),
-                      RadicalInverse(1, m_haltonIdx / m_baseScales[1]));
+        return float2(RadicalInverse(0, m_haltonIdx >> baseExp0),
+                      RadicalInverse(1, m_haltonIdx / baseScale1));
     }
 
     float2 Get2D()
@@ -132,16 +134,11 @@ struct HaltonSampler
         float2 res = float2(ScrambledRadicalInverse(m_dimension, m_haltonIdx),
                             ScrambledRadicalInverse(m_dimension + 1, m_haltonIdx));
         m_dimension += 2;
-
         return res;
     }
 
     int64_t m_haltonIdx;
     int m_dimension;
-
-    int m_baseScales[2];
-    int m_baseExps[2];
-    int m_multInvs[2];
 };
 
 static const float PI = 3.14159265358979323846f;
@@ -279,17 +276,7 @@ void RayGenShader()
 
     HaltonSampler haltonSampler;
 
-    // TODO: Calculate these properly.
-    haltonSampler.m_baseScales[0] = 128;
-    haltonSampler.m_baseScales[1] = 243;
-    haltonSampler.m_baseExps[0] = 7;
-    haltonSampler.m_baseExps[1] = 5;
-    haltonSampler.m_multInvs[0] = 59;
-    haltonSampler.m_multInvs[1] = 131;
-
-    haltonSampler.StartPixelSample(pixel, sampleIdx);
-
-    float2 filmOffset = haltonSampler.GetPixel2D();
+    float2 filmOffset = haltonSampler.StartPixelSample(pixel, sampleIdx);
 
     float2 filmPos = (float2)pixel + filmOffset;
 
@@ -308,17 +295,19 @@ void RayGenShader()
     float3 L = float3(0.f, 0.f, 0.f);
     float3 throughput = float3(1.f, 1.f, 1.f);
 
-    // TODO: Use the right brdf.
-    float3 f = float3(0.6f, 0.6f, 0.6f) / PI;
-
-    static const int MAX_DEPTH = 2;
+    static const int MAX_DEPTH = 3;
 
     for (int depth = 1;; ++depth)
     {
         RayPayload payload;
-        payload.Reflectance = float3(1.f, 1.f, 1.f);
+        payload.Reflectance = float3(0.5f, 0.5f, 0.5f);
 
         TraceRay(g_scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
+
+        float3 position = ray.Origin + payload.HitT * ray.Direction;
+
+        // TODO: Use the right brdf.
+        float3 f = payload.Reflectance / PI;
 
         for (int i = 0; i < 2; ++i)
         {
@@ -329,29 +318,30 @@ void RayGenShader()
             float pdf = 0.f;
             bool visible = false;
 
-            float3 Li = light.Sample_Li(payload.Position, haltonSampler.Get2D(), wi, pdf, visible);
+            float3 Li = light.Sample_Li(position, haltonSampler.Get2D(), wi, pdf, visible);
 
             if (visible)
             {
-                L += throughput * payload.Reflectance *
-                    (f * Li * abs(dot(wi, payload.Normal)) / pdf);
+                L += throughput * (f * Li * abs(dot(wi, payload.Normal)) / pdf);
             }
         }
 
         if (depth == MAX_DEPTH)
             break;
 
+        float3 wo = -ray.Direction;
+
         float3 wi = float3(0.f, 0.f, 0.f);
         float pdf = 0.f;
-        Lambertian_Sample_f(payload.wo, haltonSampler.Get2D(), payload.Normal, wi, pdf);
+        Lambertian_Sample_f(wo, haltonSampler.Get2D(), payload.Normal, wi, pdf);
 
         if (pdf == 0.f)
             break;
 
-        ray.Origin = payload.Position;
+        ray.Origin = position;
         ray.Direction = wi;
 
-        throughput *= payload.Reflectance * f * abs(dot(wi, payload.Normal)) / pdf;
+        throughput *= f * abs(dot(wi, payload.Normal)) / pdf;
     }
 
     float3 prevFilmVal = g_film[pixel].rgb;
@@ -400,39 +390,12 @@ void ClosestHitShader(inout RayPayload payload, IntersectAttributes attr)
     payload.Normal = n0 + attr.barycentrics.x * (n1 - n0) + attr.barycentrics.y * (n2 - n0);
     payload.Normal = normalize(mul(normalMat, float4(payload.Normal, 0.f))).xyz;
 
-    payload.Position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
-    payload.wo = normalize(-WorldRayDirection());
+    payload.HitT = RayTCurrent();
 
     if (g_hitGroupGeomConstants[GeometryIndex()].IsTextured)
     {
         payload.Reflectance = g_texture.SampleLevel(g_sampler, uv, 0).rgb;
     }
-
-    // if (payload.Depth < 2)
-    // {
-    //     RayPayload reflectPayload;
-    //     reflectPayload.L = float3(0.f, 0.f, 0.f);
-    //     reflectPayload.Depth = payload.Depth + 1;
-    //     reflectPayload.Samples[0] = payload.Samples[3];
-    //     reflectPayload.Samples[1] = payload.Samples[4];
-
-    //     float3 wo = normalize(-WorldRayDirection());
-
-    //     float3 wi = float3(0.f, 0.f, 0.f);
-    //     float pdf = 0.f;
-    //     Lambertian_Sample_f(wo, payload.Samples[2], normal, wi, pdf);
-
-    //     RayDesc reflectRay;
-    //     reflectRay.Origin = position;
-    //     reflectRay.Direction = wi;
-    //     reflectRay.TMin = 0.1f;
-    //     reflectRay.TMax = 1000.f;
-
-    //     TraceRay(g_scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, reflectRay,
-    //              reflectPayload);
-
-    //     L += reflectPayload.L;
-    // }
 }
 
 [shader("miss")]

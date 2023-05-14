@@ -60,11 +60,11 @@ App::App(HWND hwnd) : m_hwnd(hwnd)
 
 void App::CreateDevice()
 {
-    // com_ptr<ID3D12Debug1> debugController;
-    // check_hresult(D3D12GetDebugInterface(IID_PPV_ARGS(debugController.put())));
+    com_ptr<ID3D12Debug1> debugController;
+    check_hresult(D3D12GetDebugInterface(IID_PPV_ARGS(debugController.put())));
 
-    // debugController->EnableDebugLayer();
-    // debugController->SetEnableGPUBasedValidation(true);
+    debugController->EnableDebugLayer();
+    debugController->SetEnableGPUBasedValidation(true);
 
     check_hresult(CreateDXGIFactory2(DXGI_CREATE_FACTORY_DEBUG, IID_PPV_ARGS(m_factory.put())));
 
@@ -325,7 +325,7 @@ void App::CreatePipeline()
     subObjs[SubObj::ShaderConfig].pDesc = &shaderConfig;
 
     D3D12_RAYTRACING_PIPELINE_CONFIG pipelineConfig{};
-    pipelineConfig.MaxTraceRecursionDepth = 3;
+    pipelineConfig.MaxTraceRecursionDepth = 4;
 
     subObjs[SubObj::PipelineConfig].Type = D3D12_STATE_SUBOBJECT_TYPE_RAYTRACING_PIPELINE_CONFIG;
     subObjs[SubObj::PipelineConfig].pDesc = &pipelineConfig;
