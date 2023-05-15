@@ -63,6 +63,8 @@ private:
     winrt::com_ptr<IDXGISwapChain3> m_swapChain;
 
     winrt::com_ptr<ID3D12CommandAllocator> m_cmdAllocator;
+    winrt::com_ptr<ID3D12CommandAllocator> m_cmdAllocator2;
+
     winrt::com_ptr<ID3D12GraphicsCommandList4> m_cmdList;
 
     winrt::com_ptr<ID3D12Fence> m_fence;
@@ -87,6 +89,9 @@ private:
     winrt::com_ptr<ID3D12RootSignature> m_hitGroupLocalSig;
 
     winrt::com_ptr<ID3D12StateObject> m_pipeline;
+
+    winrt::com_ptr<ID3D12RootSignature> m_testRootSig;
+    winrt::com_ptr<ID3D12StateObject> m_testPipeline;
 
     uint32_t m_sampleIdx = 0;
 
@@ -125,12 +130,15 @@ private:
     winrt::com_ptr<ID3D12Resource> m_haltonEntries;
     winrt::com_ptr<ID3D12Resource> m_haltonPerms;
 
+    winrt::com_ptr<ID3D12Resource> m_testFilm;
+
     winrt::com_ptr<ID3D12Resource> m_hitGroupShaderConstantsBuffer;
     HitGroupShaderConstants* m_hitGroupShaderConstants = nullptr;
 
     std::unique_ptr<DescriptorHeap> m_descriptorHeap;
 
     D3D12_GPU_DESCRIPTOR_HANDLE m_filmUav;
+    D3D12_GPU_DESCRIPTOR_HANDLE m_testFilmUav;
 
     std::unique_ptr<DescriptorHeap> m_samplerHeap;
 
@@ -146,6 +154,10 @@ private:
     ShaderTable m_rayGenShaderTable;
     ShaderTable m_hitGroupShaderTable;
     ShaderTable m_missShaderTable;
+
+    ShaderTable m_testRayGenShaderTable;
+    ShaderTable m_testHitGroupShaderTable;
+    ShaderTable m_testMissShaderTable;
 
     struct Global
     {

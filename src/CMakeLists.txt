@@ -2,6 +2,7 @@ add_executable(PbrtDX WIN32
     App.cpp
     App.h
     gen/shaders/Shader.h
+    gen/shaders/Test.h
     main.cpp
     Mesh.cpp
     Mesh.h
@@ -15,6 +16,12 @@ compile_shader(
     OUTPUT gen/shaders/Shader.h
     SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Shader.hlsl
     VAR_NAME g_shader
+    ARGS ${COMMON_SHADER_FLAGS} -T lib_6_5)
+
+compile_shader(
+    OUTPUT gen/shaders/Test.h
+    SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/shaders/Test.hlsl
+    VAR_NAME g_testShader
     ARGS ${COMMON_SHADER_FLAGS} -T lib_6_5)
 
 # For including headers generated in the build directory.
