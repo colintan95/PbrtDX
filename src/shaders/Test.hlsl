@@ -12,19 +12,13 @@ struct RayPayload {
 [shader("raygeneration")]
 void TestRayGenShader()
 {
-    uint2 pixel = DispatchRaysIndex().xy;
-
-    float2 filmPos = (float2)pixel;
-
-    float3 rayDir =
-        normalize(float3(
-            lerp(-0.422f, 0.422f, filmPos.x / (float)DispatchRaysDimensions().x),
-            lerp(0.237f, -0.237f, filmPos.y / (float)DispatchRaysDimensions().y),
-            -1.f));
-
     RayDesc ray;
     ray.Origin = float3(0.f, 2.1088f, 13.574f);
-    ray.Direction = rayDir;
+    ray.Direction =
+        normalize(float3(
+            lerp(-0.422f, 0.422f, (float)DispatchRaysIndex().x / (float)DispatchRaysDimensions().x),
+            lerp(0.237f, -0.237f, (float)DispatchRaysIndex().y / (float)DispatchRaysDimensions().y),
+            -1.f));
     ray.TMin = 0.1f;
     ray.TMax = 1000.f;
 
@@ -34,7 +28,7 @@ void TestRayGenShader()
 
     TraceRay(g_scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
 
-    g_film[pixel].rgb = payload.Value;
+    g_film[DispatchRaysIndex().xy].rgb = payload.Value;
 }
 
 [shader("closesthit")]
