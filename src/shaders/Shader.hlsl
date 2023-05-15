@@ -197,7 +197,7 @@ struct DiffuseSphereLight
         RayDesc ray;
         ray.Origin = p;
         ray.Direction = wi;
-        ray.TMin = 0.1f;
+        ray.TMin = 0.001f;
         ray.TMax = 10000.f;
 
         float lightDist = distance(p, lightSamplePos);
