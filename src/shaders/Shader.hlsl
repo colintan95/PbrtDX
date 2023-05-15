@@ -353,7 +353,14 @@ void RayGenShader()
 
     float N = (float)(sampleIdx + 1);
 
-    g_film[pixel].rgb = ((N - 1.f) / N) * prevFilmVal + (1.f / N) * L;
+    static const float iso = 150.f;
+    static const float exposureTime = 1.f;
+
+    float imagingRatio = exposureTime * iso / 100.f;
+
+    float3 filmValue = imagingRatio * L;
+
+    g_film[pixel].rgb = ((N - 1.f) / N) * prevFilmVal + (1.f / N) * filmValue;
     g_film[pixel].a = 1.f;
 }
 
