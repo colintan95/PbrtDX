@@ -376,7 +376,7 @@ void App::LoadScene()
         m_transformBuffer = m_resourceManager->CreateUploadBuffer(
             sizeof(Mat3x4) * m_geometries.size());
 
-        auto it = m_resourceManager->GetUploadIterator<Mat3x4>(m_transformBuffer.get());
+        auto it = UploadIterator<Mat3x4>(m_transformBuffer.get());
 
         for (size_t i = 0; i < m_geometries.size(); ++i)
         {
@@ -396,8 +396,7 @@ void App::LoadScene()
         m_hitGroupGeomConstantsBuffer =
             m_resourceManager->CreateUploadBuffer(sizeof(HitGroupGeometryConstants) * 3);
 
-        auto it = m_resourceManager->GetUploadIterator<HitGroupGeometryConstants>(
-            m_hitGroupGeomConstantsBuffer.get());
+        auto it = UploadIterator<HitGroupGeometryConstants>(m_hitGroupGeomConstantsBuffer.get());
 
         it->IsTextured = 1;
         it->NormalMatrix = glm::mat4(glm::inverseTranspose(glm::mat3(transforms[0])));
@@ -427,7 +426,7 @@ void App::LoadScene()
     {
         m_lightBuffer = m_resourceManager->CreateUploadBuffer(sizeof(SphereLight) * 2);
 
-        auto it = m_resourceManager->GetUploadIterator<SphereLight>(m_lightBuffer.get());
+        auto it = UploadIterator<SphereLight>(m_lightBuffer.get());
 
         it->Position = glm::vec3(34.92f, 55.92f, -15.351f);
         it->Radius = 7.5f;
@@ -570,8 +569,7 @@ void App::CreateAccelerationStructures()
             sizeof(D3D12_RAYTRACING_INSTANCE_DESC) * 1);
 
         {
-            auto it = m_resourceManager->GetUploadIterator<D3D12_RAYTRACING_INSTANCE_DESC>(
-                instanceDescBuffer.get());
+            auto it = UploadIterator<D3D12_RAYTRACING_INSTANCE_DESC>(instanceDescBuffer.get());
 
             it->Transform[0][0] = 1.f;
             it->Transform[1][1] = 1.f;
@@ -888,28 +886,19 @@ void App::CreateShaderTables()
     m_pipeline.as(pipelineProps);
 
     {
-        m_rayGenShaderTable.Stride = Align(sizeof(RayGenShaderRecord),
-                                           D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
-        m_rayGenShaderTable.Size = m_rayGenShaderTable.Stride;
-        m_rayGenShaderTable.Buffer =
-            m_resourceManager->CreateUploadBuffer(m_rayGenShaderTable.Size);
+        m_rayGenShaderTable = ShaderTable::Create<RayGenShaderRecord>(1, m_device.get());
 
-        auto it = m_resourceManager->GetUploadIterator<RayGenShaderRecord>(
-            m_rayGenShaderTable.Buffer.get(), m_rayGenShaderTable.Stride);
+        auto it = m_rayGenShaderTable.GetUploadIterator<RayGenShaderRecord>();
 
         it->ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kRayGenShaderName));
         ++it;
     }
 
     {
-        m_hitGroupShaderTable.Stride = Align(sizeof(HitGroupShaderRecord),
-                                             D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
-        m_hitGroupShaderTable.Size = m_hitGroupShaderTable.Stride * (m_geometries.size() * 2 + 1);
-        m_hitGroupShaderTable.Buffer =
-             m_resourceManager->CreateUploadBuffer(m_hitGroupShaderTable.Size);
+        m_hitGroupShaderTable =
+            ShaderTable::Create<HitGroupShaderRecord>(m_geometries.size() * 2 + 1, m_device.get());
 
-        auto it = m_resourceManager->GetUploadIterator<HitGroupShaderRecord>(
-            m_hitGroupShaderTable.Buffer.get(), m_hitGroupShaderTable.Stride);
+        auto it = m_hitGroupShaderTable.GetUploadIterator<HitGroupShaderRecord>();
 
         for (const auto& geom : m_geometries)
         {
@@ -940,14 +929,9 @@ void App::CreateShaderTables()
     }
 
     {
-        m_missShaderTable.Stride = Align(sizeof(MissShaderRecord),
-                                         D3D12_RAYTRACING_SHADER_RECORD_BYTE_ALIGNMENT);
-        m_missShaderTable.Size = m_missShaderTable.Stride * 2;
-        m_missShaderTable.Buffer =
-            m_resourceManager->CreateUploadBuffer(m_missShaderTable.Size);
+        m_missShaderTable = ShaderTable::Create<MissShaderRecord>(2, m_device.get());
 
-        auto it = m_resourceManager->GetUploadIterator<MissShaderRecord>(
-            m_missShaderTable.Buffer.get(), m_missShaderTable.Stride);
+        auto it = m_missShaderTable.GetUploadIterator<MissShaderRecord>();
 
         it->ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kMissShaderName));
         ++it;
@@ -993,19 +977,16 @@ void App::Render()
 
         D3D12_DISPATCH_RAYS_DESC dispatchDesc{};
 
-        dispatchDesc.RayGenerationShaderRecord.StartAddress =
-            m_rayGenShaderTable.Buffer->GetGPUVirtualAddress();
-        dispatchDesc.RayGenerationShaderRecord.SizeInBytes = m_rayGenShaderTable.Size;
+        dispatchDesc.RayGenerationShaderRecord.StartAddress = m_rayGenShaderTable.GetGpuAddress();
+        dispatchDesc.RayGenerationShaderRecord.SizeInBytes = m_rayGenShaderTable.GetSize();
 
-        dispatchDesc.HitGroupTable.StartAddress =
-            m_hitGroupShaderTable.Buffer->GetGPUVirtualAddress();
-        dispatchDesc.HitGroupTable.SizeInBytes = m_hitGroupShaderTable.Size;
-        dispatchDesc.HitGroupTable.StrideInBytes = m_hitGroupShaderTable.Stride;
+        dispatchDesc.HitGroupTable.StartAddress = m_hitGroupShaderTable.GetGpuAddress();
+        dispatchDesc.HitGroupTable.SizeInBytes = m_hitGroupShaderTable.GetSize();
+        dispatchDesc.HitGroupTable.StrideInBytes = m_hitGroupShaderTable.GetStride();
 
-        dispatchDesc.MissShaderTable.StartAddress =
-            m_missShaderTable.Buffer->GetGPUVirtualAddress();
-        dispatchDesc.MissShaderTable.SizeInBytes = m_missShaderTable.Size;
-        dispatchDesc.MissShaderTable.StrideInBytes = m_missShaderTable.Stride;
+        dispatchDesc.MissShaderTable.StartAddress = m_missShaderTable.GetGpuAddress();
+        dispatchDesc.MissShaderTable.SizeInBytes = m_missShaderTable.GetSize();
+        dispatchDesc.MissShaderTable.StrideInBytes = m_missShaderTable.GetStride();
 
         dispatchDesc.Width = m_windowWidth;
         dispatchDesc.Height = m_windowHeight;

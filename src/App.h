@@ -136,13 +136,6 @@ private:
 
     D3D12_GPU_DESCRIPTOR_HANDLE m_sampler;
 
-    struct ShaderTable
-    {
-        winrt::com_ptr<ID3D12Resource> Buffer;
-        size_t Size = 0;
-        size_t Stride = 0;
-    };
-
     ShaderTable m_rayGenShaderTable;
     ShaderTable m_hitGroupShaderTable;
     ShaderTable m_missShaderTable;
