@@ -205,6 +205,7 @@ struct DiffuseSphereLight
         VisibilityPayload payload;
         payload.T = 1000000.f;
 
+        // TODO: Consider if we can do an inline ray here.
         TraceRay(g_scene, RAY_FLAG_NONE, ~0, 4, 1, 1, ray, payload);
 
         visible = (payload.T >= lightDist);
@@ -301,8 +302,12 @@ void RayGenShader()
     {
         RayPayload payload;
         payload.Reflectance = float3(0.5f, 0.5f, 0.5f);
+        payload.HitT = ray.TMax;
 
         TraceRay(g_scene, RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 1, 0, ray, payload);
+
+        if (payload.HitT == ray.TMax)
+            break;
 
         float3 position = ray.Origin + payload.HitT * ray.Direction;
 
