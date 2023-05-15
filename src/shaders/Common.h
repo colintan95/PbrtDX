@@ -18,11 +18,6 @@ struct HaltonEntry
     uint16_t Prime;
 };
 
-struct HitGroupShaderConstants
-{
-    uint32_t VisibilityHitGroupBaseIndex;
-};
-
 struct HitGroupGeometryConstants
 {
     float4x4 NormalMatrix;

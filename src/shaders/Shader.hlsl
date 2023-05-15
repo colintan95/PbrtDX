@@ -354,8 +354,6 @@ void RayGenShader()
 
 // Hit group descriptors.
 
-ConstantBuffer<HitGroupShaderConstants> g_hitGroupConstants : register(b0, space1);
-
 ByteAddressBuffer g_indices: register(t0, space1);
 
 StructuredBuffer<float3> g_normals : register(t1, space1);

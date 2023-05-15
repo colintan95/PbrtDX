@@ -125,14 +125,11 @@ private:
     winrt::com_ptr<ID3D12Resource> m_haltonEntries;
     winrt::com_ptr<ID3D12Resource> m_haltonPerms;
 
-    winrt::com_ptr<ID3D12Resource> m_hitGroupShaderConstantsBuffer;
-    HitGroupShaderConstants* m_hitGroupShaderConstants = nullptr;
-
-    std::unique_ptr<DescriptorHeap> m_descriptorHeap;
+    DescriptorHeap m_descriptorHeap;
 
     D3D12_GPU_DESCRIPTOR_HANDLE m_filmUav;
 
-    std::unique_ptr<DescriptorHeap> m_samplerHeap;
+    DescriptorHeap m_samplerHeap;
 
     D3D12_GPU_DESCRIPTOR_HANDLE m_sampler;
 
@@ -172,8 +169,7 @@ private:
     {
         enum Param
         {
-            ShaderConstants = 0,
-            Indices,
+            Indices = 0,
             Normals,
             UVs,
             GeometryConstants,

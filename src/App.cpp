@@ -210,10 +210,6 @@ void App::CreatePipeline()
 
         D3D12_ROOT_PARAMETER1 params[HitGroup::Param::NUM_PARAMS] = {};
 
-        params[HitGroup::Param::ShaderConstants].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
-        params[HitGroup::Param::ShaderConstants].Descriptor.ShaderRegister = 0;
-        params[HitGroup::Param::ShaderConstants].Descriptor.RegisterSpace = 1;
-
         params[HitGroup::Param::Indices].ParameterType = D3D12_ROOT_PARAMETER_TYPE_SRV;
         params[HitGroup::Param::Indices].Descriptor.ShaderRegister = 0;
         params[HitGroup::Param::Indices].Descriptor.RegisterSpace = 1;
@@ -746,9 +742,6 @@ void App::CreateOtherResources()
     }
 
     m_haltonPerms = m_resourceManager->CreateBufferAndUpload(std::span(permutations));
-
-    m_hitGroupShaderConstantsBuffer =
-        m_resourceManager->CreateUploadBufferAndMap(&m_hitGroupShaderConstants);
 }
 
 void App::CreateDescriptors()
@@ -759,14 +752,14 @@ void App::CreateDescriptors()
         heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
         heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
-        m_descriptorHeap = std::make_unique<DescriptorHeap>(heapDesc, m_device.get());
+        m_descriptorHeap = DescriptorHeap(heapDesc, m_device.get());
     }
 
     {
         D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
         uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 
-        auto handles = m_descriptorHeap->Allocate();
+        auto handles = m_descriptorHeap.Allocate();
 
         m_device->CreateUnorderedAccessView(m_film.get(), nullptr, &uavDesc, handles.CpuHandle);
         m_filmUav = handles.GpuHandle;
@@ -781,7 +774,7 @@ void App::CreateDescriptors()
         srvDesc.Texture2D.MostDetailedMip = 0;
         srvDesc.Texture2D.MipLevels = 1;
 
-        auto handles = m_descriptorHeap->Allocate();
+        auto handles = m_descriptorHeap.Allocate();
 
         m_device->CreateShaderResourceView(geom.Texture.get(), &srvDesc, handles.CpuHandle);
         geom.TextureSrv = handles.GpuHandle;
@@ -793,7 +786,7 @@ void App::CreateDescriptors()
         heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER;
         heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 
-        m_samplerHeap = std::make_unique<DescriptorHeap>(heapDesc, m_device.get());
+        m_samplerHeap = DescriptorHeap(heapDesc, m_device.get());
     }
 
     {
@@ -812,7 +805,7 @@ void App::CreateDescriptors()
         samplerDesc.BorderColor[2] = 0;
         samplerDesc.BorderColor[3] = 0;
 
-        auto handles = m_samplerHeap->Allocate();
+        auto handles = m_samplerHeap.Allocate();
 
         m_device->CreateSampler(&samplerDesc, handles.CpuHandle);
         m_sampler = handles.GpuHandle;
@@ -848,7 +841,6 @@ union GeometryHitGroupShaderRecord
     struct
     {
         ShaderId ShaderId;
-        D3D12_GPU_VIRTUAL_ADDRESS ShaderConstants;
         D3D12_GPU_VIRTUAL_ADDRESS Indices;
         D3D12_GPU_VIRTUAL_ADDRESS Normals;
         D3D12_GPU_VIRTUAL_ADDRESS UVs;
@@ -903,8 +895,6 @@ void App::CreateShaderTables()
         for (const auto& geom : m_geometries)
         {
             it->Geometry.L.ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kHitGroupName));
-            it->Geometry.L.ShaderConstants =
-                m_hitGroupShaderConstantsBuffer->GetGPUVirtualAddress();
             it->Geometry.L.Indices = geom.Indices->GetGPUVirtualAddress();
             it->Geometry.L.Normals = geom.Normals->GetGPUVirtualAddress();
             it->Geometry.L.UVs = geom.UVs->GetGPUVirtualAddress();
@@ -916,9 +906,6 @@ void App::CreateShaderTables()
 
         it->Light.ShaderId = ShaderId(pipelineProps->GetShaderIdentifier(kLightHitGroupName));
         ++it;
-
-        m_hitGroupShaderConstants->VisibilityHitGroupBaseIndex =
-            static_cast<uint32_t>(m_geometries.size() + 1);
 
         for (int i = 0; i < m_geometries.size(); ++i)
         {
@@ -943,8 +930,8 @@ void App::CreateShaderTables()
 
 void App::Render()
 {
-    check_hresult(m_cmdAllocator->Reset());
-    check_hresult(m_cmdList->Reset(m_cmdAllocator.get(), nullptr));
+    check_hresult(m_frames[m_currentFrame].CmdAllocator->Reset());
+    check_hresult(m_cmdList->Reset(m_frames[m_currentFrame].CmdAllocator.get(), nullptr));
 
     static constexpr int MAX_SAMPLES = 2048;
 
@@ -952,9 +939,7 @@ void App::Render()
     {
         m_cmdList->SetComputeRootSignature(m_globalRootSig.get());
 
-        ID3D12DescriptorHeap* descriptorHeaps[] = {
-            m_descriptorHeap->Inner(), m_samplerHeap->Inner()
-        };
+        ID3D12DescriptorHeap* descriptorHeaps[] = {m_descriptorHeap.Inner(), m_samplerHeap.Inner()};
         m_cmdList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
 
         m_cmdList->SetComputeRootShaderResourceView(Global::Param::Scene,

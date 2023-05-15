@@ -117,6 +117,10 @@ private:
 class DescriptorHeap
 {
 public:
+    DescriptorHeap()
+    {
+    }
+
     DescriptorHeap(const D3D12_DESCRIPTOR_HEAP_DESC& heapDesc, ID3D12Device* device);
 
     struct Handles
